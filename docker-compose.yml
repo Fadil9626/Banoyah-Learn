@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: banoyah_learn_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: learn_user
+      POSTGRES_PASSWORD: learn_pass
+      POSTGRES_DB: banoyah_learn
+    ports:
+      - "127.0.0.1:5438:5432"
+    volumes:
+      - learn_pgdata:/var/lib/postgresql/data
+
+volumes:
+  learn_pgdata:
