@@ -1,27 +1,40 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
-import { BookOpen, Award, Play, RotateCcw, CheckCircle2, Loader2, FileText, HelpCircle, Clock } from "lucide-react";
+import { BookOpen, Award, Play, RotateCcw, CheckCircle2, Loader2, FileText, HelpCircle, Clock, ClipboardCheck, Calendar, AlertTriangle } from "lucide-react";
 import api from "../lib/api";
 import PageHeader from "../components/PageHeader";
 
 export default function MyLearning() {
   const [catalog, setCatalog] = useState(null);
   const [certs, setCerts] = useState([]);
+  const [assigned, setAssigned] = useState([]);
   const navigate = useNavigate();
 
   const load = async () => {
     try {
-      const [cat, me] = await Promise.all([api("learn/catalog"), api("learn/me")]);
+      const [cat, me, mine] = await Promise.all([api("learn/catalog"), api("learn/me"), api("assignments/me")]);
       setCatalog(cat);
       setCerts(me.certificates);
+      setAssigned(mine);
     } catch (e) { toast.error(e.message); setCatalog([]); }
   };
   useEffect(() => { load(); }, []);
 
+  const todo = assigned.filter((a) => a.status !== "completed");
+
   return (
     <div>
       <PageHeader title="My Learning" subtitle="Take courses, pass the assessment, earn your certificate." />
+
+      {todo.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-sm font-bold text-content mb-3 flex items-center gap-2"><ClipboardCheck size={16} className="text-brand" /> Required for you</h2>
+          <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {todo.map((a) => <AssignedCard key={a.id} a={a} onOpen={() => navigate(`/learn/${a.course_id}`)} />)}
+          </div>
+        </div>
+      )}
 
       {certs.length > 0 && (
         <div className="mb-8">
@@ -42,6 +55,36 @@ export default function MyLearning() {
           {catalog.map((c) => <CourseCard key={c.id} course={c} onOpen={() => navigate(`/learn/${c.id}`)} />)}
         </div>
       )}
+    </div>
+  );
+}
+
+function AssignedCard({ a, onOpen }) {
+  const overdue = a.status === "overdue";
+  const started = a.progress_pct > 0;
+  return (
+    <div className="card p-5 flex flex-col" style={overdue ? { borderColor: "rgb(var(--danger) / 0.45)" } : undefined}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="w-10 h-10 rounded-xl grid place-items-center text-brand-fg flex-shrink-0" style={{ backgroundImage: "linear-gradient(135deg, rgb(var(--brand)), rgb(var(--brand-2)))" }}>
+          <ClipboardCheck size={18} />
+        </div>
+        {a.due_date && (
+          <span className="chip" style={{ backgroundColor: overdue ? "rgb(var(--danger) / 0.14)" : "rgb(var(--muted) / 0.14)", color: overdue ? "rgb(var(--danger))" : "rgb(var(--muted))" }}>
+            {overdue ? <AlertTriangle size={12} /> : <Calendar size={12} />}
+            {overdue ? "Overdue" : `Due ${new Date(a.due_date).toLocaleDateString()}`}
+          </span>
+        )}
+      </div>
+      <h3 className="mt-4 font-bold text-content leading-snug line-clamp-2">{a.title}</h3>
+      {a.category && <p className="text-xs text-muted mt-1">{a.category}</p>}
+      {started && (
+        <div className="mt-3">
+          <div className="h-1.5 rounded-full bg-surface-2 overflow-hidden">
+            <div className="h-full rounded-full" style={{ width: `${a.progress_pct}%`, backgroundImage: "linear-gradient(90deg, rgb(var(--brand)), rgb(var(--brand-2)))" }} />
+          </div>
+        </div>
+      )}
+      <button onClick={onOpen} className="mt-4 btn-brand w-full"><Play size={16} /> {started ? "Continue" : "Start"}</button>
     </div>
   );
 }

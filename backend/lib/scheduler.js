@@ -38,7 +38,7 @@ async function brandFor(orgId) {
 }
 
 async function runReminderCycle(trigger = "scheduled") {
-  const summary = { trigger, at: new Date().toISOString(), scanned: 0, reminders: 0, expired: 0, emailed: 0, errors: 0 };
+  const summary = { trigger, at: new Date().toISOString(), scanned: 0, reminders: 0, expired: 0, assignment_reminders: 0, assignment_overdue: 0, emailed: 0, errors: 0 };
 
   const orgs = (await pool.query("SELECT id FROM organizations")).rows;
   const now = Date.now();
@@ -89,6 +89,49 @@ async function runReminderCycle(trigger = "scheduled") {
         summary.errors++;
       }
     }
+
+    // ── Assignment due-date reminders ────────────────────────────────────────
+    // Assigned + published + not yet completed (no valid certificate).
+    const assigns = (await pool.query(
+      `SELECT a.id, a.due_date, a.last_reminder_day,
+              c.title AS course, u.name AS learner_name, u.email AS learner_email
+       FROM assignments a
+       JOIN courses c ON c.id=a.course_id AND c.status='published'
+       JOIN users u ON u.id=a.user_id
+       LEFT JOIN certificates cert ON cert.user_id=a.user_id AND cert.course_id=a.course_id
+              AND (cert.certified_until IS NULL OR cert.certified_until > NOW())
+       WHERE a.org_id=$1 AND a.due_date IS NOT NULL AND u.email IS NOT NULL AND cert.id IS NULL`,
+      [orgId]
+    )).rows;
+
+    for (const a of assigns) {
+      summary.scanned++;
+      const due = new Date(a.due_date).getTime();
+      if (!Number.isFinite(due)) continue;
+      const daysLeft = Math.ceil((due - now) / DAY);
+      const last = a.last_reminder_day;
+      try {
+        // Past the due date → one-off overdue notice (sentinel 0).
+        if (daysLeft < 0) {
+          if (last === 0) continue;
+          const tpl = mailer.assignmentOverdueEmail({ name: a.learner_name, course: a.course, dueDate: a.due_date, brand });
+          const r = await mailer.sendMail({ to: a.learner_email, ...tpl }, mailCfg);
+          await pool.query("UPDATE assignments SET last_reminder_day=0 WHERE id=$1", [a.id]);
+          summary.assignment_overdue++; if (r.ok) summary.emailed++; else summary.errors += r.error ? 1 : 0;
+          continue;
+        }
+        // Approaching the due date → most-urgent threshold crossed, once each.
+        const applicable = cfg.days.filter((t) => daysLeft <= t).sort((x, y) => x - y)[0];
+        if (applicable != null && (last == null || applicable < last)) {
+          const tpl = mailer.assignmentDueEmail({ name: a.learner_name, course: a.course, daysLeft, dueDate: a.due_date, brand });
+          const r = await mailer.sendMail({ to: a.learner_email, ...tpl }, mailCfg);
+          await pool.query("UPDATE assignments SET last_reminder_day=$1 WHERE id=$2", [applicable, a.id]);
+          summary.assignment_reminders++; if (r.ok) summary.emailed++; else summary.errors += r.error ? 1 : 0;
+        }
+      } catch (e) {
+        summary.errors++;
+      }
+    }
   }
 
   state.last_run = summary.at;
@@ -101,8 +144,8 @@ async function tick() {
   running = true;
   try {
     const s = await runReminderCycle("scheduled");
-    if (s.reminders || s.expired || s.errors)
-      console.log(`[reminders] reminders=${s.reminders} expired=${s.expired} emailed=${s.emailed} errors=${s.errors}`);
+    if (s.reminders || s.expired || s.assignment_reminders || s.assignment_overdue || s.errors)
+      console.log(`[reminders] cert=${s.reminders} expired=${s.expired} assign=${s.assignment_reminders} overdue=${s.assignment_overdue} emailed=${s.emailed} errors=${s.errors}`);
   } catch (e) {
     console.error("[reminders] cycle error:", e.message);
   } finally {

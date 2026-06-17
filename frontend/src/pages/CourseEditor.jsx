@@ -1,18 +1,27 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import {
   ArrowLeft, Loader2, Save, Trash2, Plus, X, FileText, Video, File,
-  ChevronUp, ChevronDown, Check, Globe, PencilLine, HelpCircle,
+  ChevronUp, ChevronDown, Check, Globe, PencilLine, HelpCircle, Upload,
+  ClipboardCheck, UserPlus, Calendar,
 } from "lucide-react";
-import api from "../lib/api";
+import api, { getToken } from "../lib/api";
 import { StatusChip } from "./Courses";
 
 const TABS = [
   { key: "details", label: "Details", icon: PencilLine },
   { key: "lessons", label: "Lessons", icon: FileText },
   { key: "quiz", label: "Quiz", icon: HelpCircle },
+  { key: "people", label: "Assignments", icon: ClipboardCheck },
 ];
+
+const ASSIGN_STATUS = {
+  completed:   { label: "Completed",   bg: "rgb(var(--ok) / 0.14)",     fg: "rgb(var(--ok))" },
+  in_progress: { label: "In progress", bg: "rgb(var(--brand) / 0.14)",  fg: "rgb(var(--brand))" },
+  overdue:     { label: "Overdue",     bg: "rgb(var(--danger) / 0.14)", fg: "rgb(var(--danger))" },
+  not_started: { label: "Not started", bg: "rgb(var(--muted) / 0.14)",  fg: "rgb(var(--muted))" },
+};
 const LESSON_ICON = { text: FileText, video: Video, pdf: File };
 
 export default function CourseEditor() {
@@ -77,6 +86,7 @@ export default function CourseEditor() {
       {tab === "details" && <DetailsTab course={course} onSaved={(c) => setCourse((p) => ({ ...p, ...c }))} />}
       {tab === "lessons" && <LessonsTab course={course} reload={load} />}
       {tab === "quiz" && <QuizTab course={course} reload={load} />}
+      {tab === "people" && <AssignmentsTab course={course} />}
     </div>
   );
 }
@@ -192,7 +202,27 @@ function LessonModal({ courseId, lesson, onClose, onSaved }) {
   const isNew = !lesson.id;
   const [f, setF] = useState({ title: lesson.title || "", type: lesson.type || "text", body: lesson.body || "", media_url: lesson.media_url || "" });
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef();
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
+
+  const onFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/media", { method: "POST", headers: { Authorization: `Bearer ${getToken()}` }, body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Upload failed");
+      set("media_url", data.url);
+      toast.success(`Uploaded ${data.filename}`);
+    } catch (err) { toast.error(err.message); }
+    finally { setUploading(false); }
+  };
+  const isUploaded = f.media_url?.startsWith("/api/media/");
 
   const save = async (e) => {
     e.preventDefault();
@@ -241,10 +271,28 @@ function LessonModal({ courseId, lesson, onClose, onSaved }) {
             </div>
           ) : (
             <div>
-              <label className="label">{f.type === "video" ? "Video URL" : "PDF URL"}</label>
+              <label className="label">{f.type === "video" ? "Video" : "PDF"}</label>
+              {/* Upload */}
+              <input ref={fileRef} type="file" className="hidden" onChange={onFile}
+                accept={f.type === "video" ? "video/*" : "application/pdf"} />
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
+                  className="btn-ghost flex-shrink-0">
+                  {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                  {uploading ? "Uploading…" : "Upload file"}
+                </button>
+                {isUploaded && (
+                  <span className="chip flex items-center gap-1.5" style={{ backgroundColor: "rgb(var(--ok) / 0.14)", color: "rgb(var(--ok))" }}>
+                    <Check size={12} /> Uploaded
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 my-2 text-[11px] text-faint">
+                <span className="h-px flex-1 bg-line" /> or paste a URL <span className="h-px flex-1 bg-line" />
+              </div>
               <input className="input font-mono text-xs" value={f.media_url} onChange={(e) => set("media_url", e.target.value)}
                 placeholder={f.type === "video" ? "https://…/lesson.mp4" : "https://…/document.pdf"} />
-              <p className="text-[11px] text-faint mt-1">Direct media upload + CDN comes with the Media module. For now, paste a hosted URL.</p>
+              <p className="text-[11px] text-faint mt-1">Uploads are stored on the server (max 300&nbsp;MB). Or paste any hosted/CDN URL.</p>
             </div>
           )}
           <div className="flex gap-3 pt-1">
@@ -368,6 +416,145 @@ function QuestionModal({ courseId, question, onClose, onSaved }) {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Assignments ────────────────────────────────────────────────────────────────
+function AssignmentsTab({ course }) {
+  const [rows, setRows] = useState(null);
+  const [assigning, setAssigning] = useState(false);
+
+  const load = () => api(`assignments/course/${course.id}`).then(setRows).catch((e) => { toast.error(e.message); setRows([]); });
+  useEffect(() => { load(); }, [course.id]); // eslint-disable-line
+
+  const unassign = async (a) => {
+    if (!confirm(`Remove ${a.name} from this course?`)) return;
+    try { await api(`assignments/${a.id}`, { method: "DELETE" }); toast.success("Unassigned"); load(); }
+    catch (e) { toast.error(e.message); }
+  };
+
+  const overdueCount = (rows || []).filter((r) => r.status === "overdue").length;
+  const doneCount = (rows || []).filter((r) => r.status === "completed").length;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted">
+          {rows == null ? "…" : rows.length === 0 ? "No one is assigned yet."
+            : <>{rows.length} assigned · <span className="text-ok font-semibold">{doneCount} completed</span>{overdueCount > 0 && <> · <span className="text-danger font-semibold">{overdueCount} overdue</span></>}</>}
+        </p>
+        <button className="btn-brand" onClick={() => setAssigning(true)}><UserPlus size={16} /> Assign people</button>
+      </div>
+
+      {rows == null ? (
+        <div className="card py-12 grid place-items-center text-muted"><Loader2 className="animate-spin" /></div>
+      ) : rows.length === 0 ? (
+        <div className="card py-12 text-center text-muted">Assign this course to people to make it required training.</div>
+      ) : (
+        <div className="card divide-y divide-line">
+          {rows.map((a) => {
+            const s = ASSIGN_STATUS[a.status] || ASSIGN_STATUS.not_started;
+            return (
+              <div key={a.id} className="flex items-center gap-3 px-4 py-3">
+                <div className="w-8 h-8 rounded-full grid place-items-center text-xs font-bold text-brand-fg flex-shrink-0" style={{ backgroundImage: "linear-gradient(135deg, rgb(var(--brand)), rgb(var(--brand-2)))" }}>
+                  {a.name.slice(0, 1).toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-content truncate">{a.name}</p>
+                  <p className="text-xs text-muted truncate">{a.email}</p>
+                </div>
+                {a.due_date && (
+                  <span className={`text-xs flex items-center gap-1 ${a.status === "overdue" ? "text-danger" : "text-muted"}`}>
+                    <Calendar size={12} /> {new Date(a.due_date).toLocaleDateString()}
+                  </span>
+                )}
+                <span className="chip flex-shrink-0" style={{ backgroundColor: s.bg, color: s.fg }}>{s.label}</span>
+                <button onClick={() => unassign(a)} className="text-faint hover:text-danger p-1.5"><X size={15} /></button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {assigning && <AssignModal courseId={course.id} onClose={() => setAssigning(false)} onDone={() => { setAssigning(false); load(); }} />}
+    </div>
+  );
+}
+
+function AssignModal({ courseId, onClose, onDone }) {
+  const [people, setPeople] = useState(null);
+  const [picked, setPicked] = useState(new Set());
+  const [due, setDue] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { api("users").then(setPeople).catch((e) => { toast.error(e.message); setPeople([]); }); }, []);
+
+  const toggle = (id) => setPicked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const learners = (people || []).filter((p) => p.role === "learner");
+  const allLearnersPicked = learners.length > 0 && learners.every((l) => picked.has(l.id));
+  const toggleAllLearners = () => setPicked((s) => {
+    const n = new Set(s);
+    if (allLearnersPicked) learners.forEach((l) => n.delete(l.id));
+    else learners.forEach((l) => n.add(l.id));
+    return n;
+  });
+
+  const submit = async () => {
+    if (!picked.size) return toast.error("Pick at least one person");
+    setBusy(true);
+    try {
+      const r = await api("assignments", { method: "POST", body: JSON.stringify({ course_id: courseId, user_ids: [...picked], due_date: due || null }) });
+      toast.success(`Assigned to ${r.assigned} ${r.assigned === 1 ? "person" : "people"}`);
+      onDone();
+    } catch (e) { toast.error(e.message); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="card w-full max-w-md p-6 flex flex-col max-h-[85vh]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-content text-lg">Assign people</h3>
+          <button className="text-faint hover:text-content" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="mb-3">
+          <label className="label">Due date <span className="text-faint font-normal">(optional)</span></label>
+          <input type="date" className="input" value={due} onChange={(e) => setDue(e.target.value)} />
+        </div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="label mb-0">People</label>
+          {learners.length > 0 && (
+            <button onClick={toggleAllLearners} className="text-xs font-semibold text-brand">
+              {allLearnersPicked ? "Clear learners" : "Select all learners"}
+            </button>
+          )}
+        </div>
+        <div className="flex-1 overflow-y-auto -mx-1 px-1 space-y-1">
+          {people == null ? (
+            <div className="py-8 grid place-items-center text-muted"><Loader2 className="animate-spin" /></div>
+          ) : people.length === 0 ? (
+            <p className="text-sm text-muted py-6 text-center">No people yet — add them under People.</p>
+          ) : people.map((p) => (
+            <button key={p.id} onClick={() => toggle(p.id)}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-surface-2 transition text-left">
+              <span className={`w-5 h-5 rounded-md border-2 grid place-items-center flex-shrink-0 ${picked.has(p.id) ? "border-brand bg-brand text-white" : "border-line"}`}>
+                {picked.has(p.id) && <Check size={12} />}
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-medium text-content truncate">{p.name}</span>
+                <span className="block text-xs text-faint truncate capitalize">{p.role}{p.job_title ? ` · ${p.job_title}` : ""}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-3 pt-4">
+          <button className="btn-ghost flex-1" onClick={onClose}>Cancel</button>
+          <button className="btn-brand flex-1" onClick={submit} disabled={busy}>
+            {busy ? <Loader2 size={16} className="animate-spin" /> : `Assign${picked.size ? ` (${picked.size})` : ""}`}
+          </button>
+        </div>
       </div>
     </div>
   );

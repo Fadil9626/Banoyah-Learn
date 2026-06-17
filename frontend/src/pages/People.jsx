@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { toast } from "react-hot-toast";
-import { UserPlus, Search, X, Loader2, Mail, ShieldCheck } from "lucide-react";
+import { UserPlus, Search, X, Loader2, Mail, ShieldCheck, FileUp, Download, CheckCircle2, AlertTriangle } from "lucide-react";
 import api from "../lib/api";
 import PageHeader from "../components/PageHeader";
 
@@ -14,6 +14,7 @@ export default function People() {
   const [rows, setRows] = useState(null);
   const [q, setQ] = useState("");
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const load = () => {
     const params = q ? `?q=${encodeURIComponent(q)}` : "";
@@ -24,6 +25,9 @@ export default function People() {
   return (
     <div>
       <PageHeader title="People" subtitle="Learners, instructors and admins in your organization.">
+        <button className="btn-ghost" onClick={() => setImporting(true)}>
+          <FileUp size={16} /> Import CSV
+        </button>
         <button className="btn-brand" onClick={() => setAdding(true)}>
           <UserPlus size={16} /> Add person
         </button>
@@ -71,6 +75,103 @@ export default function People() {
       </div>
 
       {adding && <AddModal onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load(); }} />}
+      {importing && <ImportModal onClose={() => setImporting(false)} onDone={() => { setImporting(false); load(); }} />}
+    </div>
+  );
+}
+
+function ImportModal({ onClose, onDone }) {
+  const [csv, setCsv] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const ref = useRef();
+
+  const onFile = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setFileName(file.name);
+    setResult(null);
+    const reader = new FileReader();
+    reader.onload = (ev) => setCsv(String(ev.target.result || ""));
+    reader.readAsText(file);
+  };
+
+  const downloadTemplate = () => {
+    const sample = "name,email,role,job_title,external_id\nJane Doe,jane@example.com,learner,Lab Technician,staff-001\nJohn Roe,john@example.com,instructor,Trainer,staff-002\n";
+    const url = URL.createObjectURL(new Blob([sample], { type: "text/csv" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = "people-template.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const submit = async () => {
+    if (!csv.trim()) return toast.error("Choose a CSV file first");
+    setBusy(true);
+    try {
+      const r = await api("users/import", { method: "POST", body: JSON.stringify({ csv }) });
+      setResult(r);
+      if (r.created) toast.success(`Imported ${r.created} ${r.created === 1 ? "person" : "people"}`);
+      else if (!r.errors.length) toast(`No new people (${r.skipped} already existed)`);
+    } catch (e) { toast.error(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const dataRows = csv.trim() ? Math.max(0, csv.trim().split(/\r?\n/).length - 1) : 0;
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="card w-full max-w-lg p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-bold text-content text-lg">Import people from CSV</h3>
+          <button className="text-faint hover:text-content" onClick={onClose}><X size={18} /></button>
+        </div>
+
+        {!result ? (
+          <>
+            <input ref={ref} type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} />
+            <button onClick={() => ref.current?.click()}
+              className="w-full border-2 border-dashed border-line rounded-2xl py-8 flex flex-col items-center gap-2 hover:border-brand hover:bg-surface-2/50 transition">
+              <FileUp size={26} className="text-faint" />
+              <span className="text-sm font-semibold text-content">{fileName || "Choose a CSV file"}</span>
+              <span className="text-xs text-muted">{fileName ? `${dataRows} row${dataRows === 1 ? "" : "s"} ready` : "name, email, role, job_title, external_id"}</span>
+            </button>
+            <div className="flex items-center justify-between mt-3">
+              <button onClick={downloadTemplate} className="text-xs font-semibold text-brand flex items-center gap-1.5"><Download size={13} /> Download template</button>
+              <span className="text-[11px] text-faint">Existing emails are skipped</span>
+            </div>
+            <div className="flex gap-3 mt-5">
+              <button className="btn-ghost flex-1" onClick={onClose}>Cancel</button>
+              <button className="btn-brand flex-1" onClick={submit} disabled={busy || !csv.trim()}>
+                {busy ? <Loader2 size={16} className="animate-spin" /> : `Import${dataRows ? ` ${dataRows}` : ""}`}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="grid grid-cols-3 gap-3">
+              {[["Created", result.created, "ok"], ["Skipped", result.skipped, "muted"], ["Errors", result.errors.length, result.errors.length ? "danger" : "muted"]].map(([l, v, t]) => (
+                <div key={l} className="bg-surface-2/60 border border-line rounded-xl px-4 py-3 text-center">
+                  <p className="text-2xl font-black tabular-nums" style={{ color: `rgb(var(--${t}))` }}>{v}</p>
+                  <p className="text-xs text-muted">{l}</p>
+                </div>
+              ))}
+            </div>
+            {result.errors.length > 0 && (
+              <div className="mt-4 max-h-40 overflow-y-auto rounded-xl border border-line divide-y divide-line">
+                {result.errors.map((e, i) => (
+                  <div key={i} className="flex items-start gap-2 px-3 py-2 text-xs">
+                    <AlertTriangle size={13} className="text-danger flex-shrink-0 mt-0.5" />
+                    <span className="text-muted">Row {e.row}: {e.reason}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button className="btn-brand w-full mt-5" onClick={onDone}><CheckCircle2 size={16} /> Done</button>
+          </>
+        )}
+      </div>
     </div>
   );
 }

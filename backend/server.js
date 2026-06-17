@@ -18,6 +18,8 @@ app.use("/api/learn", require("./routes/learn"));
 app.use("/api/api-consumers", require("./routes/apiConsumers"));
 app.use("/api/settings", require("./routes/settings"));
 app.use("/api/reports", require("./routes/reports"));
+app.use("/api/media", require("./routes/media"));
+app.use("/api/assignments", require("./routes/assignments"));
 app.use("/api/v1", require("./routes/v1"));
 app.use("/api", require("./routes/authoring"));
 

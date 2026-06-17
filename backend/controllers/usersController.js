@@ -71,4 +71,83 @@ const update = async (req, res) => {
   }
 };
 
-module.exports = { list, create, update };
+// ── CSV import ───────────────────────────────────────────────────────────────
+// A small RFC-4180-ish parser: handles quoted fields, embedded commas/newlines,
+// and "" escaping. Returns an array of string arrays.
+function parseCsv(text) {
+  const rows = [];
+  let field = "", row = [], inQuotes = false, i = 0;
+  const endField = () => { row.push(field); field = ""; };
+  const endRow = () => { endField(); rows.push(row); row = []; };
+  while (i < text.length) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
+        inQuotes = false; i++; continue;
+      }
+      field += ch; i++; continue;
+    }
+    if (ch === '"') { inQuotes = true; i++; continue; }
+    if (ch === ",") { endField(); i++; continue; }
+    if (ch === "\r") { i++; continue; }
+    if (ch === "\n") { endRow(); i++; continue; }
+    field += ch; i++;
+  }
+  if (field.length || row.length) endRow();
+  // Drop blank lines.
+  return rows.filter((r) => r.some((c) => c.trim() !== ""));
+}
+
+const HEADER_ALIASES = {
+  name: ["name", "full name", "fullname"],
+  email: ["email", "e-mail", "email address"],
+  role: ["role"],
+  job_title: ["job_title", "job title", "title", "position"],
+  external_id: ["external_id", "external id", "staff id", "staff_id", "id"],
+};
+
+// ── POST /api/users/import ───────────────────────────────────────────────────
+// Body: { csv: "<raw csv text>" }. First row is the header. Existing emails are
+// skipped (not errors). Returns { created, skipped, errors:[{row,reason}] }.
+const importUsers = async (req, res) => {
+  const csv = req.body.csv;
+  if (!csv || typeof csv !== "string") return res.status(400).json({ message: "csv text is required" });
+  const rows = parseCsv(csv);
+  if (rows.length < 2) return res.status(400).json({ message: "CSV needs a header row and at least one data row" });
+
+  const header = rows[0].map((h) => h.trim().toLowerCase());
+  const col = (key) => header.findIndex((h) => HEADER_ALIASES[key].includes(h));
+  const ci = { name: col("name"), email: col("email"), role: col("role"), job_title: col("job_title"), external_id: col("external_id") };
+  if (ci.name === -1 || ci.email === -1) return res.status(400).json({ message: "CSV must include 'name' and 'email' columns" });
+
+  const get = (row, idx) => (idx >= 0 && row[idx] != null ? String(row[idx]).trim() : "");
+  let created = 0, skipped = 0;
+  const errors = [];
+
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    const name = get(row, ci.name);
+    const email = get(row, ci.email).toLowerCase();
+    if (!name || !email) { errors.push({ row: r + 1, reason: "name and email are required" }); continue; }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { errors.push({ row: r + 1, reason: `invalid email: ${email}` }); continue; }
+    const roleRaw = get(row, ci.role).toLowerCase();
+    const role = ["admin", "instructor", "learner"].includes(roleRaw) ? roleRaw : "learner";
+    const job = get(row, ci.job_title) || null;
+    const ext = get(row, ci.external_id) || null;
+    try {
+      const ins = await pool.query(
+        `INSERT INTO users (org_id, name, email, role, job_title, external_id)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (org_id, email) DO NOTHING RETURNING id`,
+        [req.user.org_id, name, email, role, job, ext]
+      );
+      if (ins.rows.length) created++; else skipped++;
+    } catch (e) {
+      errors.push({ row: r + 1, reason: e.code === "23505" ? `duplicate external ID: ${ext}` : e.message });
+    }
+  }
+  return res.json({ created, skipped, errors });
+};
+
+module.exports = { list, create, update, importUsers };

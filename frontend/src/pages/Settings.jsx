@@ -119,7 +119,7 @@ function RemindersTab({ data, runtime, reload }) {
   };
   const runNow = async () => {
     setRunning(true);
-    try { const s = await api("settings/reminders/run", { method: "POST" }); toast.success(`Done — ${s.reminders} reminder(s), ${s.expired} expiry notice(s)`); reload(); }
+    try { const s = await api("settings/reminders/run", { method: "POST" }); toast.success(`Done — ${s.reminders + s.assignment_reminders} reminder(s), ${s.assignment_overdue} overdue, ${s.expired} expiry`); reload(); }
     catch (e) { toast.error(e.message); } finally { setRunning(false); }
   };
   const fmt = (iso) => iso ? new Date(iso).toLocaleString() : "—";
@@ -132,9 +132,15 @@ function RemindersTab({ data, runtime, reload }) {
           <button onClick={runNow} disabled={running} className="btn-brand">{running ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />} Run now</button>
         </div>
         {runtime?.last_summary && (
-          <div className="grid grid-cols-3 gap-3 mt-4">
-            {[["Reminders", runtime.last_summary.reminders], ["Expiry notices", runtime.last_summary.expired], ["Emailed", runtime.last_summary.emailed]].map(([l, v]) => (
-              <div key={l} className="bg-surface-2/60 border border-line rounded-xl px-4 py-3"><p className="text-2xl font-black text-content tabular-nums">{v}</p><p className="text-xs text-muted">{l}</p></div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
+            {[
+              ["Cert reminders", runtime.last_summary.reminders],
+              ["Expiry notices", runtime.last_summary.expired],
+              ["Due reminders", runtime.last_summary.assignment_reminders],
+              ["Overdue notices", runtime.last_summary.assignment_overdue],
+              ["Emailed", runtime.last_summary.emailed],
+            ].map(([l, v]) => (
+              <div key={l} className="bg-surface-2/60 border border-line rounded-xl px-4 py-3"><p className="text-2xl font-black text-content tabular-nums">{v ?? 0}</p><p className="text-xs text-muted">{l}</p></div>
             ))}
           </div>
         )}

@@ -92,4 +92,31 @@ function expiredEmail({ name, course, brand }) {
   };
 }
 
-module.exports = { MAIL_KEYS, loadMailConfig, isConfigured, sendMail, reminderEmail, expiredEmail };
+function assignmentDueEmail({ name, course, daysLeft, dueDate, brand }) {
+  const when = daysLeft <= 0 ? "today" : `in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`;
+  const dateStr = dueDate ? new Date(dueDate).toLocaleDateString(undefined, { dateStyle: "long" }) : "";
+  return {
+    subject: `Reminder: "${course}" is due ${when}`,
+    html: shell("You have training due", `
+      <p>Hi ${name || "there"},</p>
+      <p>You've been assigned the course <strong>${course}</strong>, due <strong>${when}</strong>${dateStr ? ` (${dateStr})` : ""}.</p>
+      <p>Please log in to ${brand?.org || "Banoyah Learn"} and complete it before the due date.</p>
+      <p style="margin-top:18px">Thank you,<br>${brand?.org || "Banoyah Learn"}</p>`, brand),
+    text: `Hi ${name || "there"},\n\nYour assigned course ${course} is due ${when}${dateStr ? ` (${dateStr})` : ""}. Please complete it before then.\n\n${brand?.org || "Banoyah Learn"}`,
+  };
+}
+
+function assignmentOverdueEmail({ name, course, dueDate, brand }) {
+  const dateStr = dueDate ? new Date(dueDate).toLocaleDateString(undefined, { dateStyle: "long" }) : "";
+  return {
+    subject: `Overdue: "${course}" training`,
+    html: shell("Training overdue", `
+      <p>Hi ${name || "there"},</p>
+      <p>Your assigned course <strong>${course}</strong> was due${dateStr ? ` on ${dateStr}` : ""} and is now <strong>overdue</strong>.</p>
+      <p>Please log in to ${brand?.org || "Banoyah Learn"} and complete it as soon as possible.</p>
+      <p style="margin-top:18px">${brand?.org || "Banoyah Learn"}</p>`, brand),
+    text: `Hi ${name || "there"},\n\nYour assigned course ${course} is overdue${dateStr ? ` (was due ${dateStr})` : ""}. Please complete it as soon as possible.\n\n${brand?.org || "Banoyah Learn"}`,
+  };
+}
+
+module.exports = { MAIL_KEYS, loadMailConfig, isConfigured, sendMail, reminderEmail, expiredEmail, assignmentDueEmail, assignmentOverdueEmail };
