@@ -1,16 +1,20 @@
 import React, { useEffect, useRef, useState } from "react";
 import { toast } from "react-hot-toast";
-import { UserPlus, Search, X, Loader2, Mail, ShieldCheck, FileUp, Download, CheckCircle2, AlertTriangle, KeyRound } from "lucide-react";
+import { UserPlus, Search, X, Loader2, Mail, ShieldCheck, FileUp, Download, CheckCircle2, AlertTriangle, KeyRound, Users2 } from "lucide-react";
 import api from "../lib/api";
+import { useAuth } from "../context/AuthContext";
 import PageHeader from "../components/PageHeader";
 
 const ROLE_STYLE = {
   admin:      { bg: "rgb(var(--brand) / 0.12)",  fg: "rgb(var(--brand))" },
   instructor: { bg: "rgb(var(--brand-2) / 0.12)", fg: "rgb(var(--brand-2))" },
+  manager:    { bg: "rgb(var(--warn) / 0.14)",   fg: "rgb(var(--warn))" },
   learner:    { bg: "rgb(var(--muted) / 0.14)",  fg: "rgb(var(--muted))" },
 };
 
 export default function People() {
+  const { user } = useAuth();
+  const canManage = user?.role === "admin" || user?.role === "instructor";
   const [rows, setRows] = useState(null);
   const [q, setQ] = useState("");
   const [adding, setAdding] = useState(false);
@@ -25,13 +29,15 @@ export default function People() {
 
   return (
     <div>
-      <PageHeader title="People" subtitle="Learners, instructors and admins in your organization.">
-        <button className="btn-ghost" onClick={() => setImporting(true)}>
-          <FileUp size={16} /> Import CSV
-        </button>
-        <button className="btn-brand" onClick={() => setAdding(true)}>
-          <UserPlus size={16} /> Add person
-        </button>
+      <PageHeader title="People" subtitle={canManage ? "Learners, instructors, managers and admins in your organization." : "Your team."}>
+        {canManage && <>
+          <button className="btn-ghost" onClick={() => setImporting(true)}>
+            <FileUp size={16} /> Import CSV
+          </button>
+          <button className="btn-brand" onClick={() => setAdding(true)}>
+            <UserPlus size={16} /> Add person
+          </button>
+        </>}
       </PageHeader>
 
       <div className="card overflow-hidden">
@@ -59,7 +65,9 @@ export default function People() {
                   <p className="text-sm font-semibold text-content truncate">{u.name}</p>
                   <p className="text-xs text-muted truncate flex items-center gap-1.5"><Mail size={11} />{u.email}</p>
                 </div>
-                {u.job_title && <span className="hidden md:block text-xs text-muted truncate max-w-[160px]">{u.job_title}</span>}
+                {u.team && (
+                  <span className="hidden md:flex chip bg-surface-2 text-muted" title="Team / unit"><Users2 size={11} />{u.team}</span>
+                )}
                 {u.external_id && (
                   <span className="hidden lg:flex chip bg-surface-2 text-faint font-mono" title="External ID for API mapping">
                     <ShieldCheck size={11} />{u.external_id}
@@ -73,8 +81,10 @@ export default function People() {
                   style={{ backgroundColor: ROLE_STYLE[u.role]?.bg, color: ROLE_STYLE[u.role]?.fg }}>
                   {u.role}
                 </span>
-                <button onClick={() => setResetTarget(u)} title={u.has_password ? "Reset password" : "Set password"}
-                  className="text-faint hover:text-brand p-1.5 flex-shrink-0"><KeyRound size={15} /></button>
+                {canManage && (
+                  <button onClick={() => setResetTarget(u)} title={u.has_password ? "Reset password" : "Set password"}
+                    className="text-faint hover:text-brand p-1.5 flex-shrink-0"><KeyRound size={15} /></button>
+                )}
               </div>
             ))}
           </div>
@@ -233,7 +243,7 @@ function Empty({ onAdd }) {
 
 function AddModal({ onClose, onSaved }) {
   const [busy, setBusy] = useState(false);
-  const [f, setF] = useState({ name: "", email: "", role: "learner", job_title: "", external_id: "" });
+  const [f, setF] = useState({ name: "", email: "", role: "learner", job_title: "", external_id: "", team: "" });
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
 
   const save = async (e) => {
@@ -268,6 +278,7 @@ function AddModal({ onClose, onSaved }) {
               <label className="label">Role</label>
               <select className="input" value={f.role} onChange={(e) => set("role", e.target.value)}>
                 <option value="learner">Learner</option>
+                <option value="manager">Manager</option>
                 <option value="instructor">Instructor</option>
                 <option value="admin">Admin</option>
               </select>
@@ -277,10 +288,17 @@ function AddModal({ onClose, onSaved }) {
               <input className="input" value={f.job_title} onChange={(e) => set("job_title", e.target.value)} placeholder="Lab technician" />
             </div>
           </div>
-          <div>
-            <label className="label">External ID <span className="text-faint font-normal">(optional — for API mapping)</span></label>
-            <input className="input font-mono" value={f.external_id} onChange={(e) => set("external_id", e.target.value)} placeholder="staff-4921" />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Team <span className="text-faint font-normal">(unit/facility)</span></label>
+              <input className="input" value={f.team} onChange={(e) => set("team", e.target.value)} placeholder="District A" />
+            </div>
+            <div>
+              <label className="label">External ID <span className="text-faint font-normal">(API)</span></label>
+              <input className="input font-mono" value={f.external_id} onChange={(e) => set("external_id", e.target.value)} placeholder="staff-4921" />
+            </div>
           </div>
+          {f.role === "manager" && <p className="text-[11px] text-muted -mt-1">A manager sees only the people and reports for their <strong>team</strong>.</p>}
           <div className="flex gap-3 pt-1">
             <button type="button" className="btn-ghost flex-1" onClick={onClose}>Cancel</button>
             <button type="submit" className="btn-brand flex-1" disabled={busy}>

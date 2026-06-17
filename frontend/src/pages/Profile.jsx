@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { toast } from "react-hot-toast";
-import { User, Lock, Loader2, Check, Building2, Mail, Shield } from "lucide-react";
-import api from "../lib/api";
+import QRCode from "qrcode";
+import { User, Lock, Loader2, Check, Building2, Mail, Shield, ShieldCheck, Smartphone, X } from "lucide-react";
+import api, { setToken } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import PageHeader from "../components/PageHeader";
 
@@ -24,7 +25,8 @@ export default function Profile() {
     if (pw.new_password !== pw.confirm) return toast.error("Passwords don't match");
     setSavingPw(true);
     try {
-      await api("auth/password", { method: "PUT", body: JSON.stringify({ current_password: pw.current_password, new_password: pw.new_password }) });
+      const res = await api("auth/password", { method: "PUT", body: JSON.stringify({ current_password: pw.current_password, new_password: pw.new_password }) });
+      if (res.token) setToken(res.token); // password change rotates the session token
       toast.success("Password updated");
       setPw({ current_password: "", new_password: "", confirm: "" });
     } catch (e) { toast.error(e.message); } finally { setSavingPw(false); }
@@ -83,6 +85,92 @@ export default function Profile() {
           </button>
         </div>
       </div>
+
+      <TwoFactor user={user} refresh={refresh} />
+    </div>
+  );
+}
+
+function TwoFactor({ user, refresh }) {
+  const enabled = !!user?.totp_enabled;
+  const [setup, setSetup] = useState(null); // { secret, qr } during enrollment
+  const [code, setCode] = useState("");
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [disabling, setDisabling] = useState(false);
+
+  const start = async () => {
+    setBusy(true);
+    try {
+      const r = await api("auth/2fa/start", { method: "POST" });
+      const qr = await QRCode.toDataURL(r.otpauth_url, { margin: 1, width: 200 });
+      setSetup({ secret: r.secret, qr });
+    } catch (e) { toast.error(e.message); } finally { setBusy(false); }
+  };
+  const enable = async () => {
+    setBusy(true);
+    try {
+      const r = await api("auth/2fa/enable", { method: "POST", body: JSON.stringify({ code }) });
+      if (r.token) setToken(r.token);
+      toast.success("Two-factor enabled");
+      setSetup(null); setCode(""); refresh();
+    } catch (e) { toast.error(e.message); } finally { setBusy(false); }
+  };
+  const disable = async () => {
+    setBusy(true);
+    try {
+      const r = await api("auth/2fa/disable", { method: "POST", body: JSON.stringify({ password: pw }) });
+      if (r.token) setToken(r.token);
+      toast.success("Two-factor disabled");
+      setDisabling(false); setPw(""); refresh();
+    } catch (e) { toast.error(e.message); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="card p-6 mt-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="font-bold text-content flex items-center gap-2"><ShieldCheck size={16} className="text-brand" /> Two-factor authentication</h3>
+          <p className="text-sm text-muted mt-1">Require a code from an authenticator app when signing in.</p>
+        </div>
+        <span className="chip flex-shrink-0" style={{ backgroundColor: enabled ? "rgb(var(--ok) / 0.14)" : "rgb(var(--muted) / 0.14)", color: enabled ? "rgb(var(--ok))" : "rgb(var(--muted))" }}>
+          {enabled ? "Enabled" : "Disabled"}
+        </span>
+      </div>
+
+      {!enabled && !setup && (
+        <button className="btn-brand mt-4" onClick={start} disabled={busy}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Smartphone size={16} />} Enable 2FA</button>
+      )}
+
+      {!enabled && setup && (
+        <div className="mt-4 flex flex-col sm:flex-row gap-5 items-start">
+          <img src={setup.qr} alt="2FA QR code" className="rounded-xl border border-line bg-white p-1.5 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm text-muted">Scan with Google Authenticator, Authy, 1Password, etc. — or enter this key manually:</p>
+            <code className="block mt-2 font-mono text-xs text-content bg-surface-2 border border-line rounded-lg px-3 py-2 break-all">{setup.secret}</code>
+            <label className="label mt-4">Enter the 6-digit code to confirm</label>
+            <div className="flex gap-2">
+              <input className="input font-mono tracking-widest" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="123456" />
+              <button className="btn-brand flex-shrink-0" onClick={enable} disabled={busy || code.length !== 6}>{busy ? <Loader2 size={16} className="animate-spin" /> : "Confirm"}</button>
+            </div>
+            <button className="text-xs text-muted hover:text-content mt-3" onClick={() => { setSetup(null); setCode(""); }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {enabled && !disabling && (
+        <button className="btn-ghost mt-4" onClick={() => setDisabling(true)}><X size={16} /> Disable 2FA</button>
+      )}
+      {enabled && disabling && (
+        <div className="mt-4 max-w-sm">
+          <label className="label">Confirm your password to disable</label>
+          <div className="flex gap-2">
+            <input type="password" className="input" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="••••••••" />
+            <button className="btn-brand flex-shrink-0" style={{ backgroundImage: "none", backgroundColor: "rgb(var(--danger))" }} onClick={disable} disabled={busy || !pw}>{busy ? <Loader2 size={16} className="animate-spin" /> : "Disable"}</button>
+          </div>
+          <button className="text-xs text-muted hover:text-content mt-2" onClick={() => { setDisabling(false); setPw(""); }}>Cancel</button>
+        </div>
+      )}
     </div>
   );
 }

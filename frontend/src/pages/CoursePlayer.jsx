@@ -43,7 +43,7 @@ export default function CoursePlayer() {
       onDone={(r) => { setResult(r); setMode("result"); load(); }} />;
 
   if (mode === "result")
-    return <Result result={result} course={data.course}
+    return <Result result={result} course={data.course} questions={data.questions}
       onRetry={() => setMode("quiz")} onClose={() => navigate("/learn")}
       onCertificate={(serial) => navigate(`/learn/certificate/${serial}`)} />;
 
@@ -75,11 +75,16 @@ export default function CoursePlayer() {
             );
           })}
           <div className="p-2 mt-1 border-t border-line">
-            <button onClick={() => setMode("quiz")} disabled={!allLessonsDone}
+            <button onClick={() => setMode("quiz")} disabled={!allLessonsDone || data.can_attempt === false}
               className="btn-brand w-full disabled:opacity-50" title={allLessonsDone ? "" : "Complete all lessons first"}>
               <ListChecks size={16} /> Take quiz
             </button>
             {!allLessonsDone && <p className="text-[11px] text-faint text-center mt-2">Finish all lessons to unlock the quiz.</p>}
+            {allLessonsDone && data.attempts_left != null && (
+              <p className={`text-[11px] text-center mt-2 ${data.can_attempt === false ? "text-danger" : "text-faint"}`}>
+                {data.can_attempt === false ? "No attempts remaining." : `${data.attempts_left} attempt${data.attempts_left === 1 ? "" : "s"} left`}
+              </p>
+            )}
           </div>
         </aside>
 
@@ -190,22 +195,61 @@ function Quiz({ course, questions, onCancel, onDone }) {
 }
 
 // ── Result ────────────────────────────────────────────────────────────────────
-function Result({ result, course, onRetry, onClose, onCertificate }) {
-  const { passed, score, pass_mark, correct, total } = result;
+function Result({ result, course, questions, onRetry, onClose, onCertificate }) {
+  const { passed, score, pass_mark, correct, total, review, attempts_left } = result;
+  const noAttempts = attempts_left === 0;
   return (
-    <div className="max-w-lg mx-auto text-center pt-6">
-      <div className={`w-20 h-20 rounded-3xl grid place-items-center mx-auto ${passed ? "text-ok" : "text-danger"}`}
-        style={{ backgroundColor: passed ? "rgb(var(--ok) / 0.12)" : "rgb(var(--danger) / 0.12)" }}>
-        {passed ? <Award size={40} /> : <RotateCcw size={36} />}
+    <div className="max-w-lg mx-auto pt-6">
+      <div className="text-center">
+        <div className={`w-20 h-20 rounded-3xl grid place-items-center mx-auto ${passed ? "text-ok" : "text-danger"}`}
+          style={{ backgroundColor: passed ? "rgb(var(--ok) / 0.12)" : "rgb(var(--danger) / 0.12)" }}>
+          {passed ? <Award size={40} /> : <RotateCcw size={36} />}
+        </div>
+        <h1 className="text-2xl font-black text-content mt-5">{passed ? "Congratulations!" : "Not quite there"}</h1>
+        <p className="text-muted mt-1">
+          You scored <strong className="text-content">{score}%</strong> ({correct}/{total}) · pass mark {pass_mark}%
+        </p>
+        <div className="h-2 rounded-full bg-surface-2 overflow-hidden mt-6 max-w-xs mx-auto">
+          <div className="h-full rounded-full" style={{ width: `${score}%`, backgroundColor: passed ? "rgb(var(--ok))" : "rgb(var(--danger))" }} />
+        </div>
+        {!passed && attempts_left != null && (
+          <p className={`text-xs mt-3 ${noAttempts ? "text-danger" : "text-muted"}`}>
+            {noAttempts ? "No attempts remaining." : `${attempts_left} attempt${attempts_left === 1 ? "" : "s"} left`}
+          </p>
+        )}
       </div>
-      <h1 className="text-2xl font-black text-content mt-5">{passed ? "Congratulations!" : "Not quite there"}</h1>
-      <p className="text-muted mt-1">
-        You scored <strong className="text-content">{score}%</strong> ({correct}/{total}) · pass mark {pass_mark}%
-      </p>
 
-      <div className="h-2 rounded-full bg-surface-2 overflow-hidden mt-6 max-w-xs mx-auto">
-        <div className="h-full rounded-full" style={{ width: `${score}%`, backgroundColor: passed ? "rgb(var(--ok))" : "rgb(var(--danger))" }} />
-      </div>
+      {/* Answer review */}
+      {review && questions?.length > 0 && (
+        <div className="mt-8">
+          <p className="text-[10px] font-black uppercase tracking-widest text-faint mb-3">Review</p>
+          <div className="space-y-3">
+            {questions.map((q, qi) => {
+              const r = review[q.id] || {};
+              return (
+                <div key={q.id} className="card p-4">
+                  <div className="flex items-start gap-2">
+                    {r.correct ? <Check size={16} className="text-ok mt-0.5 flex-shrink-0" /> : <X size={16} className="text-danger mt-0.5 flex-shrink-0" />}
+                    <p className="text-sm font-semibold text-content">{q.prompt}</p>
+                  </div>
+                  <ul className="mt-2 space-y-1 pl-6">
+                    {q.options.map((o, oi) => {
+                      const isCorrect = oi === r.correct_index;
+                      const isChosen = oi === r.chosen;
+                      return (
+                        <li key={oi} className={`text-xs flex items-center gap-2 ${isCorrect ? "text-ok font-semibold" : isChosen ? "text-danger" : "text-muted"}`}>
+                          {isCorrect ? <Check size={12} /> : isChosen ? <X size={12} /> : <span className="w-3" />}
+                          {o}{isChosen && !isCorrect ? " (your answer)" : ""}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-col gap-2.5 mt-8">
         {passed && result.certificate && (
@@ -213,7 +257,7 @@ function Result({ result, course, onRetry, onClose, onCertificate }) {
             <Award size={16} /> View certificate
           </button>
         )}
-        {!passed && <button onClick={onRetry} className="btn-brand"><RotateCcw size={16} /> Try again</button>}
+        {!passed && !noAttempts && <button onClick={onRetry} className="btn-brand"><RotateCcw size={16} /> Try again</button>}
         <button onClick={onClose} className="btn-ghost">Back to My Learning</button>
       </div>
     </div>

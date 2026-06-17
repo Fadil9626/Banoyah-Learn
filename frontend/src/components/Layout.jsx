@@ -8,16 +8,16 @@ import { useAuth } from "../context/AuthContext";
 import Brand from "./Brand";
 import ThemeToggle from "./ThemeToggle";
 
-// `staff` items are only shown to admins/instructors; everyone sees the rest.
+// `roles` lists who sees each item; omit it for "everyone signed in".
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/learn", label: "My Learning", icon: GraduationCap },
-  { to: "/people", label: "People", icon: Users, staff: true },
-  { to: "/courses", label: "Courses", icon: BookOpen, staff: true },
-  { to: "/certificates", label: "Certificates", icon: Award, staff: true },
-  { to: "/reporting", label: "Reporting", icon: BarChart3, staff: true },
-  { to: "/api-access", label: "API access", icon: Plug, staff: true },
-  { to: "/audit", label: "Audit log", icon: ScrollText, admin: true },
+  { to: "/people", label: "People", icon: Users, roles: ["admin", "instructor", "manager"] },
+  { to: "/courses", label: "Courses", icon: BookOpen, roles: ["admin", "instructor"] },
+  { to: "/certificates", label: "Certificates", icon: Award, roles: ["admin", "instructor"] },
+  { to: "/reporting", label: "Reporting", icon: BarChart3, roles: ["admin", "instructor", "manager"] },
+  { to: "/api-access", label: "API access", icon: Plug, roles: ["admin"] },
+  { to: "/audit", label: "Audit log", icon: ScrollText, roles: ["admin"] },
 ];
 
 export default function Layout({ children }) {
@@ -27,9 +27,8 @@ export default function Layout({ children }) {
 
   const doLogout = () => { logout(); navigate("/login", { replace: true }); };
 
-  const isStaff = user?.role === "admin" || user?.role === "instructor";
   const isAdmin = user?.role === "admin";
-  const nav = NAV.filter((n) => (!n.staff || isStaff) && (!n.admin || isAdmin));
+  const nav = NAV.filter((n) => !n.roles || n.roles.includes(user?.role));
 
   return (
     <div className="min-h-full flex bg-bg">
@@ -65,7 +64,7 @@ export default function Layout({ children }) {
           ))}
         </nav>
 
-        {isStaff && (
+        {isAdmin && (
           <div className="p-3 border-t border-line">
             <NavLink to="/settings" onClick={() => setOpen(false)}
               className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-muted hover:text-content hover:bg-surface-2 transition">

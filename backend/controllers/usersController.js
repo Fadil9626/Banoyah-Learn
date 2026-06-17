@@ -4,15 +4,17 @@ const audit = require("../lib/audit");
 
 const publicUser = (u) => ({
   id: u.id, org_id: u.org_id, name: u.name, email: u.email, role: u.role,
-  job_title: u.job_title, external_id: u.external_id, is_active: u.is_active,
-  has_password: !!u.password_hash, created_at: u.created_at,
+  job_title: u.job_title, external_id: u.external_id, team: u.team || null,
+  is_active: u.is_active, has_password: !!u.password_hash, created_at: u.created_at,
 });
 
 // ── GET /api/users ─────────────────────────────────────────────────────────
-// All users in the caller's organization. Optional ?role= and ?q= filters.
+// Users in the caller's organization. Managers see only their own team.
+// Optional ?role= and ?q= filters.
 const list = async (req, res) => {
   const params = [req.user.org_id];
   let where = "org_id = $1";
+  if (req.user.role === "manager") { params.push(req.user.team); where += ` AND team IS NOT DISTINCT FROM $${params.length}`; }
   if (req.query.role) { params.push(req.query.role); where += ` AND role = $${params.length}`; }
   if (req.query.q) {
     params.push(`%${req.query.q.toLowerCase()}%`);
@@ -30,16 +32,16 @@ const list = async (req, res) => {
 // Create a learner/instructor/admin within the org. A password is optional —
 // learners provisioned for tracking need not log in.
 const create = async (req, res) => {
-  const { name, email, role, job_title, external_id, password } = req.body;
+  const { name, email, role, job_title, external_id, team, password } = req.body;
   if (!name || !email) return res.status(400).json({ message: "name and email are required" });
-  const allowed = ["admin", "instructor", "learner"];
+  const allowed = ["admin", "instructor", "manager", "learner"];
   const r = allowed.includes(role) ? role : "learner";
   try {
     const hash = password ? await bcrypt.hash(password, 12) : null;
     const { rows } = await pool.query(
-      `INSERT INTO users (org_id, name, email, role, job_title, external_id, password_hash)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [req.user.org_id, name, email.toLowerCase().trim(), r, job_title || null, external_id || null, hash]
+      `INSERT INTO users (org_id, name, email, role, job_title, external_id, team, password_hash)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [req.user.org_id, name, email.toLowerCase().trim(), r, job_title || null, external_id || null, team || null, hash]
     );
     audit.record(req, "user.create", { target: rows[0].email, details: { role: r } });
     return res.status(201).json(publicUser(rows[0]));
@@ -54,10 +56,10 @@ const update = async (req, res) => {
   const fields = [];
   const vals = [];
   let i = 1;
-  for (const key of ["name", "role", "job_title", "external_id", "is_active"]) {
+  for (const key of ["name", "role", "job_title", "external_id", "team", "is_active"]) {
     if (req.body[key] !== undefined) { fields.push(`${key}=$${i++}`); vals.push(req.body[key]); }
   }
-  if (req.body.password) { fields.push(`password_hash=$${i++}`); vals.push(await bcrypt.hash(req.body.password, 12)); }
+  if (req.body.password) { fields.push(`password_hash=$${i++}`, "token_version=token_version+1"); vals.push(await bcrypt.hash(req.body.password, 12)); }
   if (!fields.length) return res.status(400).json({ message: "Nothing to update" });
   vals.push(req.params.id, req.user.org_id);
   try {
@@ -108,6 +110,7 @@ const HEADER_ALIASES = {
   role: ["role"],
   job_title: ["job_title", "job title", "title", "position"],
   external_id: ["external_id", "external id", "staff id", "staff_id", "id"],
+  team: ["team", "unit", "facility", "district", "department"],
 };
 
 // ── POST /api/users/import ───────────────────────────────────────────────────
@@ -121,7 +124,7 @@ const importUsers = async (req, res) => {
 
   const header = rows[0].map((h) => h.trim().toLowerCase());
   const col = (key) => header.findIndex((h) => HEADER_ALIASES[key].includes(h));
-  const ci = { name: col("name"), email: col("email"), role: col("role"), job_title: col("job_title"), external_id: col("external_id") };
+  const ci = { name: col("name"), email: col("email"), role: col("role"), job_title: col("job_title"), external_id: col("external_id"), team: col("team") };
   if (ci.name === -1 || ci.email === -1) return res.status(400).json({ message: "CSV must include 'name' and 'email' columns" });
 
   const get = (row, idx) => (idx >= 0 && row[idx] != null ? String(row[idx]).trim() : "");
@@ -135,15 +138,16 @@ const importUsers = async (req, res) => {
     if (!name || !email) { errors.push({ row: r + 1, reason: "name and email are required" }); continue; }
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { errors.push({ row: r + 1, reason: `invalid email: ${email}` }); continue; }
     const roleRaw = get(row, ci.role).toLowerCase();
-    const role = ["admin", "instructor", "learner"].includes(roleRaw) ? roleRaw : "learner";
+    const role = ["admin", "instructor", "manager", "learner"].includes(roleRaw) ? roleRaw : "learner";
     const job = get(row, ci.job_title) || null;
     const ext = get(row, ci.external_id) || null;
+    const team = get(row, ci.team) || null;
     try {
       const ins = await pool.query(
-        `INSERT INTO users (org_id, name, email, role, job_title, external_id)
-         VALUES ($1,$2,$3,$4,$5,$6)
+        `INSERT INTO users (org_id, name, email, role, job_title, external_id, team)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
          ON CONFLICT (org_id, email) DO NOTHING RETURNING id`,
-        [req.user.org_id, name, email, role, job, ext]
+        [req.user.org_id, name, email, role, job, ext, team]
       );
       if (ins.rows.length) created++; else skipped++;
     } catch (e) {

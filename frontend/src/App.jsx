@@ -20,6 +20,9 @@ const ApiAccess    = lazy(() => import("./pages/ApiAccess"));
 const AuditLog     = lazy(() => import("./pages/AuditLog"));
 const Settings     = lazy(() => import("./pages/Settings"));
 const Profile      = lazy(() => import("./pages/Profile"));
+const Verify       = lazy(() => import("./pages/Verify"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const ResetPassword  = lazy(() => import("./pages/ResetPassword"));
 
 function PageLoader() {
   return (
@@ -42,6 +45,7 @@ function Protected({ children, allowedRoles }) {
 }
 
 const STAFF = ["admin", "instructor"];
+const OVERSIGHT = ["admin", "instructor", "manager"]; // can view People + Reporting
 const ADMIN = ["admin"];
 
 export default function App() {
@@ -49,6 +53,9 @@ export default function App() {
     <Suspense fallback={<PageLoader />}>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/verify/:serial" element={<Verify />} />
+        <Route path="/forgot" element={<ForgotPassword />} />
+        <Route path="/reset/:token" element={<ResetPassword />} />
 
         {/* Anyone signed in */}
         <Route path="/" element={<Protected><Dashboard /></Protected>} />
@@ -57,12 +64,14 @@ export default function App() {
         <Route path="/learn/:id" element={<Protected><CoursePlayer /></Protected>} />
         <Route path="/profile" element={<Protected><Profile /></Protected>} />
 
+        {/* Oversight (admin + instructor + manager) — managers are team-scoped */}
+        <Route path="/people" element={<Protected allowedRoles={OVERSIGHT}><People /></Protected>} />
+        <Route path="/reporting" element={<Protected allowedRoles={OVERSIGHT}><Reporting /></Protected>} />
+
         {/* Staff only (admin + instructor) — matches backend requireRole */}
-        <Route path="/people" element={<Protected allowedRoles={STAFF}><People /></Protected>} />
         <Route path="/courses" element={<Protected allowedRoles={STAFF}><Courses /></Protected>} />
         <Route path="/courses/:id" element={<Protected allowedRoles={STAFF}><CourseEditor /></Protected>} />
         <Route path="/certificates" element={<Protected allowedRoles={STAFF}><Certificates /></Protected>} />
-        <Route path="/reporting" element={<Protected allowedRoles={STAFF}><Reporting /></Protected>} />
 
         {/* Admin only */}
         <Route path="/api-access" element={<Protected allowedRoles={ADMIN}><ApiAccess /></Protected>} />

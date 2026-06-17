@@ -7,6 +7,16 @@ const webhooks = require("../lib/webhooks");
 // Short, human-ish unique certificate serial, e.g. BL-7F3A9C2E.
 const makeSerial = () => "BL-" + crypto.randomBytes(4).toString("hex").toUpperCase();
 
+// Fisher–Yates shuffle (returns a new array).
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 // ── GET /api/learn/catalog ───────────────────────────────────────────────────
 // Published courses in the org, with the caller's enrollment status (if any).
 const catalog = async (req, res) => {
@@ -51,16 +61,22 @@ const getForLearner = async (req, res) => {
     const lessons = (await pool.query(
       "SELECT id, sort, title, type, body, media_url FROM lessons WHERE course_id=$1 ORDER BY sort, id", [course.id]
     )).rows;
-    const questions = (await pool.query(
+    let questions = (await pool.query(
       "SELECT id, sort, prompt, options FROM quiz_questions WHERE course_id=$1 ORDER BY sort, id", [course.id]
     )).rows;
+    if (course.shuffle_questions) questions = shuffle(questions);
     const enrollment = (await pool.query(
       "SELECT * FROM enrollments WHERE user_id=$1 AND course_id=$2", [req.user.id, course.id]
     )).rows[0] || null;
     const certificate = (await pool.query(
       "SELECT * FROM certificates WHERE user_id=$1 AND course_id=$2", [req.user.id, course.id]
     )).rows[0] || null;
-    return res.json({ course, lessons, questions, enrollment, certificate });
+    const attempts_used = enrollment
+      ? Number((await pool.query("SELECT COUNT(*) FROM attempts WHERE enrollment_id=$1", [enrollment.id])).rows[0].count)
+      : 0;
+    const passed = enrollment?.status === "passed";
+    const attempts_left = course.max_attempts > 0 ? Math.max(0, course.max_attempts - attempts_used) : null;
+    return res.json({ course, lessons, questions, enrollment, certificate, attempts_used, attempts_left, can_attempt: passed || attempts_left === null || attempts_left > 0 });
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 
@@ -96,6 +112,12 @@ const submitQuiz = async (req, res) => {
     const course = await publishedCourse(req.user.org_id, req.params.id);
     if (!course) return res.status(404).json({ message: "Course not available" });
     const enr = await ensureEnrollment(req.user, course.id);
+
+    // Enforce the attempt limit (until passed; 0 = unlimited).
+    if (course.max_attempts > 0 && enr.status !== "passed") {
+      const used = Number((await pool.query("SELECT COUNT(*) FROM attempts WHERE enrollment_id=$1", [enr.id])).rows[0].count);
+      if (used >= course.max_attempts) return res.status(403).json({ message: "No attempts remaining for this course" });
+    }
 
     const questions = (await pool.query(
       "SELECT id, correct_index FROM quiz_questions WHERE course_id=$1", [course.id]
@@ -146,7 +168,9 @@ const submitQuiz = async (req, res) => {
       });
     }
 
-    return res.json({ score, passed, pass_mark: course.pass_mark, correct, total: questions.length, review, certificate });
+    const used = Number((await pool.query("SELECT COUNT(*) FROM attempts WHERE enrollment_id=$1", [enr.id])).rows[0].count);
+    const attempts_left = course.max_attempts > 0 ? Math.max(0, course.max_attempts - used) : null;
+    return res.json({ score, passed, pass_mark: course.pass_mark, correct, total: questions.length, review, certificate, attempts_left });
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 
@@ -203,9 +227,10 @@ const downloadCertificate = async (req, res) => {
     if (!rows.length) return res.status(404).json({ message: "Certificate not found" });
     const brand = await loadBrand(req.user.org_id);
     const safe = String(rows[0].course_title).replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+    const verifyUrl = `${req.protocol}://${req.get("host")}/verify/${rows[0].serial}`;
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="certificate-${safe}-${rows[0].serial}.pdf"`);
-    certificatePDF({ ...rows[0], brand_accent: brand.accent, brand_logo: brand.logo }, res);
+    certificatePDF({ ...rows[0], brand_accent: brand.accent, brand_logo: brand.logo, verify_url: verifyUrl }, res);
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 

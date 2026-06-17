@@ -11,7 +11,10 @@ app.use(express.json({ limit: "5mb" }));
 // API routes
 app.get("/api/health", (_req, res) => res.json({ ok: true, service: "banoyah-learn", time: new Date().toISOString() }));
 
+app.use("/api/verify", require("./routes/verify")); // public — no auth
+
 app.use("/api/auth", require("./routes/auth"));
+app.use("/api/dashboard", require("./routes/dashboard"));
 app.use("/api/users", require("./routes/users"));
 app.use("/api/courses", require("./routes/courses"));
 app.use("/api/learn", require("./routes/learn"));

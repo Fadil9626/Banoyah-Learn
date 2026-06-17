@@ -23,11 +23,14 @@ export function AuthProvider({ children }) {
 
   useEffect(() => { loadMe(); }, [loadMe]);
 
-  const login = async (email, password) => {
-    const { token, user } = await api("auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
-    setToken(token);
-    setUser(user);
+  // Returns { mfa_required: true } when 2FA is on and no/blank code was supplied.
+  const login = async (email, password, totp_code) => {
+    const res = await api("auth/login", { method: "POST", body: JSON.stringify({ email, password, totp_code }) });
+    if (res.mfa_required) return { mfa_required: true };
+    setToken(res.token);
+    setUser(res.user);
     await loadMe();
+    return { ok: true };
   };
 
   const bootstrap = async (payload) => {

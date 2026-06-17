@@ -98,6 +98,7 @@ function DetailsTab({ course, onSaved }) {
   const [f, setF] = useState({
     title: course.title, description: course.description || "", category: course.category || "",
     pass_mark: course.pass_mark, validity_months: course.validity_months ?? "",
+    shuffle_questions: !!course.shuffle_questions, max_attempts: course.max_attempts ?? 0,
   });
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
@@ -136,6 +137,27 @@ function DetailsTab({ course, onSaved }) {
           <input className="input" type="number" min="0" value={f.validity_months} onChange={(e) => set("validity_months", e.target.value)} placeholder="Never expires" />
         </div>
       </div>
+
+      {/* Quiz options */}
+      <div className="pt-4 mt-1 border-t border-line space-y-4">
+        <p className="text-[10px] font-black uppercase tracking-widest text-faint flex items-center gap-1.5"><HelpCircle size={12} /> Quiz options</p>
+        <button type="button" onClick={() => set("shuffle_questions", !f.shuffle_questions)}
+          className="w-full flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-surface-2/50 border border-line hover:bg-surface-2 transition text-left">
+          <span>
+            <span className="block text-sm font-semibold text-content">Shuffle questions</span>
+            <span className="block text-xs text-muted">Randomize the order for each attempt.</span>
+          </span>
+          <span className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${f.shuffle_questions ? "bg-ok" : "bg-line"}`}>
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${f.shuffle_questions ? "translate-x-5" : ""}`} />
+          </span>
+        </button>
+        <div className="max-w-[12rem]">
+          <label className="label">Max attempts</label>
+          <input className="input" type="number" min="0" value={f.max_attempts} onChange={(e) => set("max_attempts", e.target.value)} placeholder="0" />
+          <p className="text-[11px] text-faint mt-1">0 = unlimited until passed.</p>
+        </div>
+      </div>
+
       <button className="btn-brand" onClick={save} disabled={busy}>
         {busy ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Save changes
       </button>

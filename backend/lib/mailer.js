@@ -119,4 +119,16 @@ function assignmentOverdueEmail({ name, course, dueDate, brand }) {
   };
 }
 
-module.exports = { MAIL_KEYS, loadMailConfig, isConfigured, sendMail, reminderEmail, expiredEmail, assignmentDueEmail, assignmentOverdueEmail };
+function resetEmail({ name, link, brand }) {
+  return {
+    subject: `Reset your ${brand?.org || "Banoyah Learn"} password`,
+    html: shell("Password reset", `
+      <p>Hi ${name || "there"},</p>
+      <p>We received a request to reset your password. Click below to choose a new one — the link is valid for 1 hour.</p>
+      <p style="margin:22px 0"><a href="${link}" style="background:${brand?.accent || "#4F46E5"};color:#fff;text-decoration:none;padding:11px 18px;border-radius:10px;font-weight:600;display:inline-block">Reset password</a></p>
+      <p style="font-size:12px;color:#94a3b8">If you didn't request this, you can safely ignore this email.</p>`, brand),
+    text: `Hi ${name || "there"},\n\nReset your password (valid 1 hour): ${link}\n\nIf you didn't request this, ignore this email.`,
+  };
+}
+
+module.exports = { MAIL_KEYS, loadMailConfig, isConfigured, sendMail, reminderEmail, expiredEmail, assignmentDueEmail, assignmentOverdueEmail, resetEmail };

@@ -5,7 +5,7 @@ const { protect, requireRole } = require("../middleware/auth");
 
 router.use(protect);
 
-router.get("/", c.list);
+router.get("/",         requireRole("admin", "instructor", "manager"), c.list);
 router.post("/",        requireRole("admin", "instructor"), c.create);
 router.post("/import",  requireRole("admin", "instructor"), c.importUsers);
 router.patch("/:id",    requireRole("admin", "instructor"), c.update);

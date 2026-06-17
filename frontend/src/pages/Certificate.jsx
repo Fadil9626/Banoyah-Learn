@@ -74,6 +74,9 @@ export default function Certificate() {
             <Field label="Valid until" value={fmt(cert.certified_until) || "No expiry"} />
             <Field label="Serial" value={cert.serial} mono />
           </div>
+          <p className="text-[10px] text-faint mt-6">
+            Verify at {window.location.origin}/verify/{cert.serial}
+          </p>
         </div>
       </div>
     </div>

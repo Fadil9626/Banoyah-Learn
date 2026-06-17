@@ -44,14 +44,14 @@ const getCourse = async (req, res) => {
 };
 
 const createCourse = async (req, res) => {
-  const { title, description, category, pass_mark, validity_months } = req.body;
+  const { title, description, category, pass_mark, validity_months, shuffle_questions, max_attempts } = req.body;
   if (!title?.trim()) return res.status(400).json({ message: "Title is required" });
   try {
     const { rows } = await pool.query(
-      `INSERT INTO courses (org_id, title, description, category, pass_mark, validity_months, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      `INSERT INTO courses (org_id, title, description, category, pass_mark, validity_months, shuffle_questions, max_attempts, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
       [req.user.org_id, title.trim(), description || null, category || null,
-       clampPct(pass_mark, 70), monthsOrNull(validity_months), req.user.id]
+       clampPct(pass_mark, 70), monthsOrNull(validity_months), !!shuffle_questions, nonNegInt(max_attempts), req.user.id]
     );
     return res.status(201).json(rows[0]);
   } catch (e) { return res.status(500).json({ message: e.message }); }
@@ -64,6 +64,7 @@ const updateCourse = async (req, res) => {
     const fmt = {
       title: (v) => String(v).trim(), description: (v) => v || null, category: (v) => v || null,
       pass_mark: (v) => clampPct(v, 70), validity_months: (v) => monthsOrNull(v),
+      shuffle_questions: (v) => !!v, max_attempts: (v) => nonNegInt(v),
     };
     for (const [k, f] of Object.entries(fmt)) {
       if (req.body[k] !== undefined) { sets.push(`${k}=$${i++}`); vals.push(f(req.body[k])); }
@@ -215,6 +216,7 @@ const deleteQuestion = async (req, res) => {
 const touch = (courseId) => pool.query("UPDATE courses SET updated_at=NOW() WHERE id=$1", [courseId]);
 const clampPct = (v, dflt) => { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : dflt; };
 const monthsOrNull = (v) => { if (v === null || v === undefined || v === "") return null; const n = parseInt(v, 10); return Number.isFinite(n) && n > 0 ? n : null; };
+const nonNegInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) && n > 0 ? n : 0; };
 
 module.exports = {
   listCourses, getCourse, createCourse, updateCourse, deleteCourse, setStatus,

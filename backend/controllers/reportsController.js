@@ -3,34 +3,49 @@ const pool = require("../config/db");
 const DAY = 86_400_000;
 const daysLeft = (until) => Math.ceil((new Date(until).getTime() - Date.now()) / DAY);
 
+// For a manager, the set of user ids in their team; null = no restriction.
+async function teamIds(req) {
+  if (req.user.role !== "manager") return null;
+  const { rows } = await pool.query(
+    "SELECT id FROM users WHERE org_id=$1 AND team IS NOT DISTINCT FROM $2", [req.user.org_id, req.user.team]
+  );
+  return rows.map((r) => r.id);
+}
+
 // ── GET /api/reports/summary ─────────────────────────────────────────────────
-// Org-wide compliance figures + a per-course breakdown.
 const summary = async (req, res) => {
   const org = req.user.org_id;
   try {
+    const ids = await teamIds(req);
+    const params = ids ? [org, ids] : [org];
+    const cf = ids ? " AND user_id = ANY($2)" : "";   // certificates filter
+    const pf = ids ? " AND id = ANY($2)" : "";        // people filter
+    const ef = ids ? " AND e.user_id = ANY($2)" : ""; // enrollments
+    const ctf = ids ? " AND ct.user_id = ANY($2)" : "";
+
     const { rows: [t] } = await pool.query(
       `SELECT
-         (SELECT COUNT(*) FROM users WHERE org_id=$1)                                         AS people,
-         (SELECT COUNT(*) FROM courses WHERE org_id=$1 AND status='published')                AS courses,
-         (SELECT COUNT(*) FROM certificates WHERE org_id=$1)                                  AS certificates,
+         (SELECT COUNT(*) FROM users WHERE org_id=$1${pf})                                     AS people,
+         (SELECT COUNT(*) FROM courses WHERE org_id=$1 AND status='published')                 AS courses,
+         (SELECT COUNT(*) FROM certificates WHERE org_id=$1${cf})                              AS certificates,
          (SELECT COUNT(DISTINCT user_id) FROM certificates
-            WHERE org_id=$1 AND (certified_until IS NULL OR certified_until > NOW()))         AS certified_people,
+            WHERE org_id=$1 AND (certified_until IS NULL OR certified_until > NOW())${cf})     AS certified_people,
          (SELECT COUNT(*) FROM certificates
             WHERE org_id=$1 AND certified_until IS NOT NULL
-              AND certified_until > NOW() AND certified_until <= NOW()+INTERVAL '30 days')    AS expiring_soon,
+              AND certified_until > NOW() AND certified_until <= NOW()+INTERVAL '30 days'${cf}) AS expiring_soon,
          (SELECT COUNT(*) FROM certificates
-            WHERE org_id=$1 AND certified_until IS NOT NULL AND certified_until < NOW())      AS expired`,
-      [org]
+            WHERE org_id=$1 AND certified_until IS NOT NULL AND certified_until < NOW()${cf})  AS expired`,
+      params
     );
     const { rows: byCourse } = await pool.query(
       `SELECT c.id, c.title, c.pass_mark,
-              (SELECT COUNT(*) FROM enrollments e WHERE e.course_id=c.id)                       AS enrolled,
-              (SELECT COUNT(*) FROM enrollments e WHERE e.course_id=c.id AND e.status='passed') AS passed,
-              (SELECT COUNT(*) FROM certificates ct WHERE ct.course_id=c.id)                    AS certificates,
+              (SELECT COUNT(*) FROM enrollments e WHERE e.course_id=c.id${ef})                       AS enrolled,
+              (SELECT COUNT(*) FROM enrollments e WHERE e.course_id=c.id AND e.status='passed'${ef}) AS passed,
+              (SELECT COUNT(*) FROM certificates ct WHERE ct.course_id=c.id${ctf})                   AS certificates,
               (SELECT ROUND(AVG(e.best_score)) FROM enrollments e
-                 WHERE e.course_id=c.id AND e.best_score IS NOT NULL)                           AS avg_score
+                 WHERE e.course_id=c.id AND e.best_score IS NOT NULL${ef})                           AS avg_score
        FROM courses c WHERE c.org_id=$1 AND c.status='published' ORDER BY c.title`,
-      [org]
+      params
     );
     return res.json({
       totals: {
@@ -48,11 +63,13 @@ const summary = async (req, res) => {
 };
 
 // ── GET /api/reports/expiring?days=30 ────────────────────────────────────────
-// Certificates already expired or expiring within `days`, soonest first.
 const expiring = async (req, res) => {
   const org = req.user.org_id;
   const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 365);
   try {
+    const ids = await teamIds(req);
+    const params = ids ? [org, days, ids] : [org, days];
+    const tf = ids ? " AND cert.user_id = ANY($3)" : "";
     const { rows } = await pool.query(
       `SELECT cert.serial, cert.certified_until, cert.score,
               u.name AS learner, u.email, u.external_id, c.title AS course
@@ -60,38 +77,35 @@ const expiring = async (req, res) => {
        JOIN users u ON u.id=cert.user_id
        JOIN courses c ON c.id=cert.course_id
        WHERE cert.org_id=$1 AND cert.certified_until IS NOT NULL
-         AND cert.certified_until <= NOW() + ($2 || ' days')::interval
+         AND cert.certified_until <= NOW() + ($2 || ' days')::interval${tf}
        ORDER BY cert.certified_until ASC`,
-      [org, days]
+      params
     );
     return res.json(rows.map((r) => {
       const dl = daysLeft(r.certified_until);
-      return {
-        serial: r.serial, learner: r.learner, email: r.email, external_id: r.external_id,
+      return { serial: r.serial, learner: r.learner, email: r.email, external_id: r.external_id,
         course: r.course, score: r.score, certified_until: r.certified_until,
-        days_left: dl, status: dl < 0 ? "expired" : "expiring",
-      };
+        days_left: dl, status: dl < 0 ? "expired" : "expiring" };
     }));
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 
 // ── GET /api/reports/assignments ─────────────────────────────────────────────
-// Required-training compliance: org totals, per-course completion, overdue list.
-// "completed" = a valid (non-expired) certificate exists for the assigned course.
 const assignmentCompliance = async (req, res) => {
   const org = req.user.org_id;
-  // A reusable expression: does this assignment have a valid certificate?
   const COMPLETED = "(cert.id IS NOT NULL AND (cert.certified_until IS NULL OR cert.certified_until > NOW()))";
   const OVERDUE = `(NOT ${COMPLETED} AND a.due_date IS NOT NULL AND a.due_date < CURRENT_DATE)`;
-  const join = `FROM assignments a
-                LEFT JOIN certificates cert ON cert.user_id=a.user_id AND cert.course_id=a.course_id
-                WHERE a.org_id=$1`;
   try {
+    const ids = await teamIds(req);
+    const params = ids ? [org, ids] : [org];
+    const af = ids ? " AND a.user_id = ANY($2)" : "";
     const { rows: [t] } = await pool.query(
       `SELECT COUNT(*) AS total,
               COUNT(*) FILTER (WHERE ${COMPLETED}) AS completed,
               COUNT(*) FILTER (WHERE ${OVERDUE})   AS overdue
-       ${join}`, [org]
+       FROM assignments a
+       LEFT JOIN certificates cert ON cert.user_id=a.user_id AND cert.course_id=a.course_id
+       WHERE a.org_id=$1${af}`, params
     );
     const { rows: byCourse } = await pool.query(
       `SELECT c.id, c.title,
@@ -101,8 +115,8 @@ const assignmentCompliance = async (req, res) => {
        FROM assignments a
        JOIN courses c ON c.id=a.course_id
        LEFT JOIN certificates cert ON cert.user_id=a.user_id AND cert.course_id=a.course_id
-       WHERE a.org_id=$1
-       GROUP BY c.id, c.title ORDER BY c.title`, [org]
+       WHERE a.org_id=$1${af}
+       GROUP BY c.id, c.title ORDER BY c.title`, params
     );
     const { rows: overdue } = await pool.query(
       `SELECT u.name AS learner, u.email, u.external_id, c.title AS course, a.due_date
@@ -111,8 +125,8 @@ const assignmentCompliance = async (req, res) => {
        JOIN courses c ON c.id=a.course_id
        LEFT JOIN certificates cert ON cert.user_id=a.user_id AND cert.course_id=a.course_id
        WHERE a.org_id=$1 AND a.due_date IS NOT NULL AND a.due_date < CURRENT_DATE
-         AND NOT ${COMPLETED}
-       ORDER BY a.due_date ASC LIMIT 100`, [org]
+         AND NOT ${COMPLETED}${af}
+       ORDER BY a.due_date ASC LIMIT 100`, params
     );
     return res.json({
       totals: { total: +t.total, completed: +t.completed, overdue: +t.overdue },
@@ -129,14 +143,17 @@ const assignmentCompliance = async (req, res) => {
 };
 
 // ── GET /api/reports/register ────────────────────────────────────────────────
-// Every certificate in the org (the Certificates admin page). Optional ?q= search.
 const register = async (req, res) => {
   const org = req.user.org_id;
-  const q = req.query.q ? `%${req.query.q.toLowerCase()}%` : null;
-  const params = [org];
-  let filter = "";
-  if (q) { params.push(q); filter = ` AND (LOWER(u.name) LIKE $2 OR LOWER(c.title) LIKE $2 OR LOWER(cert.serial) LIKE $2)`; }
   try {
+    const ids = await teamIds(req);
+    const params = [org];
+    let filter = "";
+    if (ids) { params.push(ids); filter += ` AND cert.user_id = ANY($${params.length})`; }
+    if (req.query.q) {
+      params.push(`%${req.query.q.toLowerCase()}%`);
+      filter += ` AND (LOWER(u.name) LIKE $${params.length} OR LOWER(c.title) LIKE $${params.length} OR LOWER(cert.serial) LIKE $${params.length})`;
+    }
     const { rows } = await pool.query(
       `SELECT cert.serial, cert.score, cert.issued_at, cert.certified_until,
               u.name AS learner, u.email, u.external_id, c.title AS course
@@ -144,45 +161,43 @@ const register = async (req, res) => {
        JOIN users u ON u.id=cert.user_id
        JOIN courses c ON c.id=cert.course_id
        WHERE cert.org_id=$1${filter}
-       ORDER BY cert.issued_at DESC`,
-      params
+       ORDER BY cert.issued_at DESC`, params
     );
     return res.json(rows.map((r) => {
       const dl = r.certified_until ? daysLeft(r.certified_until) : null;
-      return {
-        serial: r.serial, learner: r.learner, email: r.email, external_id: r.external_id,
+      return { serial: r.serial, learner: r.learner, email: r.email, external_id: r.external_id,
         course: r.course, score: r.score, issued_at: r.issued_at, certified_until: r.certified_until,
-        days_left: dl, status: dl == null ? "valid" : dl < 0 ? "expired" : "valid",
-      };
+        days_left: dl, status: dl == null ? "valid" : dl < 0 ? "expired" : "valid" };
     }));
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 
 // ── GET /api/reports/certifications.csv ──────────────────────────────────────
-// The full certification register as CSV (compliance / MoH export).
 const exportCsv = async (req, res) => {
   const org = req.user.org_id;
   try {
+    const ids = await teamIds(req);
+    const params = ids ? [org, ids] : [org];
+    const tf = ids ? " AND cert.user_id = ANY($2)" : "";
     const { rows } = await pool.query(
-      `SELECT u.name AS learner, u.email, u.external_id, u.job_title,
+      `SELECT u.name AS learner, u.email, u.external_id, u.job_title, u.team,
               c.title AS course, cert.serial, cert.score, cert.issued_at, cert.certified_until
        FROM certificates cert
        JOIN users u ON u.id=cert.user_id
        JOIN courses c ON c.id=cert.course_id
-       WHERE cert.org_id=$1 ORDER BY u.name, c.title`,
-      [org]
+       WHERE cert.org_id=$1${tf} ORDER BY u.name, c.title`, params
     );
     const esc = (v) => {
       if (v == null) return "";
       const s = String(v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const header = ["Learner", "Email", "External ID", "Job title", "Course", "Serial", "Score", "Issued", "Certified until", "Status"];
+    const header = ["Learner", "Email", "External ID", "Job title", "Team", "Course", "Serial", "Score", "Issued", "Certified until", "Status"];
     const lines = [header.join(",")];
     for (const r of rows) {
       const status = !r.certified_until ? "valid" : (new Date(r.certified_until) < new Date() ? "expired" : "valid");
       lines.push([
-        r.learner, r.email, r.external_id, r.job_title, r.course, r.serial,
+        r.learner, r.email, r.external_id, r.job_title, r.team, r.course, r.serial,
         r.score, r.issued_at?.toISOString?.().slice(0, 10) || r.issued_at,
         r.certified_until ? (r.certified_until.toISOString?.().slice(0, 10) || r.certified_until) : "No expiry",
         status,

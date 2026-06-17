@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { toast } from "react-hot-toast";
-import { Mail, Lock, User, Building2, ArrowRight, Loader2 } from "lucide-react";
+import { Mail, Lock, User, Building2, ArrowRight, Loader2, ShieldCheck } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import api from "../lib/api";
 import Brand from "../components/Brand";
@@ -12,6 +12,8 @@ export default function Login() {
   const navigate = useNavigate();
   const [mode, setMode] = useState(null); // 'login' | 'bootstrap' | null(loading)
   const [busy, setBusy] = useState(false);
+  const [mfa, setMfa] = useState(false); // 2FA code step
+  const [code, setCode] = useState("");
   const [form, setForm] = useState({ org_name: "", name: "", email: "", password: "" });
 
   useEffect(() => { if (user) navigate("/", { replace: true }); }, [user, navigate]);
@@ -32,7 +34,8 @@ export default function Login() {
         await bootstrap(form);
         toast.success("Welcome to Banoyah Learn");
       } else {
-        await login(form.email, form.password);
+        const res = await login(form.email, form.password, mfa ? code : undefined);
+        if (res.mfa_required) { setMfa(true); setBusy(false); return; } // ask for the 2FA code
       }
       navigate("/", { replace: true });
     } catch (err) {
@@ -74,34 +77,47 @@ export default function Login() {
         <div className="flex-1 flex items-center justify-center px-6 pb-16">
           <div className="w-full max-w-sm">
             <h2 className="text-2xl font-black text-content tracking-tight">
-              {mode === "bootstrap" ? "Set up your workspace" : "Welcome back"}
+              {mfa ? "Two-factor authentication" : mode === "bootstrap" ? "Set up your workspace" : "Welcome back"}
             </h2>
             <p className="text-sm text-muted mt-1">
-              {mode === "bootstrap"
-                ? "Create your organization and administrator account."
+              {mfa ? "Enter the 6-digit code from your authenticator app."
+                : mode === "bootstrap" ? "Create your organization and administrator account."
                 : "Sign in to continue to Banoyah Learn."}
             </p>
 
             <form onSubmit={submit} className="mt-8 space-y-4">
-              {mode === "bootstrap" && (
+              {mfa ? (
+                <Input icon={ShieldCheck} label="Authentication code" value={code}
+                  onChange={(v) => setCode(v.replace(/\D/g, "").slice(0, 6))} placeholder="123456" autoFocus />
+              ) : (
                 <>
-                  <Input icon={Building2} label="Organization name" value={form.org_name}
-                    onChange={(v) => set("org_name", v)} placeholder="Ministry of Health" autoFocus />
-                  <Input icon={User} label="Your name" value={form.name}
-                    onChange={(v) => set("name", v)} placeholder="Jane Doe" />
+                  {mode === "bootstrap" && (
+                    <>
+                      <Input icon={Building2} label="Organization name" value={form.org_name}
+                        onChange={(v) => set("org_name", v)} placeholder="Ministry of Health" autoFocus />
+                      <Input icon={User} label="Your name" value={form.name}
+                        onChange={(v) => set("name", v)} placeholder="Jane Doe" />
+                    </>
+                  )}
+                  <Input icon={Mail} type="email" label="Email" value={form.email}
+                    onChange={(v) => set("email", v)} placeholder="you@example.com" autoFocus={mode === "login"} />
+                  <Input icon={Lock} type="password" label="Password" value={form.password}
+                    onChange={(v) => set("password", v)} placeholder={mode === "bootstrap" ? "At least 8 characters" : "••••••••"} />
+                  {mode === "login" && (
+                    <div className="text-right -mt-1">
+                      <Link to="/forgot" className="text-xs font-semibold text-brand hover:underline">Forgot password?</Link>
+                    </div>
+                  )}
                 </>
               )}
-              <Input icon={Mail} type="email" label="Email" value={form.email}
-                onChange={(v) => set("email", v)} placeholder="you@example.com" autoFocus={mode === "login"} />
-              <Input icon={Lock} type="password" label="Password" value={form.password}
-                onChange={(v) => set("password", v)} placeholder={mode === "bootstrap" ? "At least 8 characters" : "••••••••"} />
 
               <button type="submit" disabled={busy || !mode} className="btn-brand w-full mt-2">
                 {busy ? <Loader2 size={16} className="animate-spin" /> : <>
-                  {mode === "bootstrap" ? "Create workspace" : "Sign in"}
+                  {mfa ? "Verify" : mode === "bootstrap" ? "Create workspace" : "Sign in"}
                   <ArrowRight size={16} />
                 </>}
               </button>
+              {mfa && <button type="button" onClick={() => { setMfa(false); setCode(""); }} className="w-full text-xs text-muted hover:text-content">← Back</button>}
             </form>
           </div>
         </div>

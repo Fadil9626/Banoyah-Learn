@@ -3,7 +3,7 @@ const router = express.Router();
 const c = require("../controllers/reportsController");
 const { protect, requireRole } = require("../middleware/auth");
 
-router.use(protect, requireRole("admin", "instructor"));
+router.use(protect, requireRole("admin", "instructor", "manager"));
 
 router.get("/summary", c.summary);
 router.get("/expiring", c.expiring);

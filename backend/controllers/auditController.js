@@ -26,4 +26,13 @@ const list = async (req, res) => {
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 
-module.exports = { list };
+// ── GET /api/audit/verify ────────────────────────────────────────────────────
+// Recompute the org's hash chain to prove the log hasn't been tampered with.
+const verify = async (req, res) => {
+  try {
+    const result = await require("../lib/audit").verifyChain(req.user.org_id);
+    return res.json(result);
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+};
+
+module.exports = { list, verify };

@@ -87,6 +87,12 @@ function certificatePDF(cert, out) {
   col("Valid until", fmtDate(cert.certified_until) || "No expiry", m + 60 + third, third, "center");
   col("Serial", cert.serial, m + 60 + third * 2, third, "right");
 
+  // Verification line.
+  if (cert.verify_url) {
+    doc.fillColor(MUTED).font("Helvetica").fontSize(8)
+      .text(`Verify the authenticity of this certificate at ${cert.verify_url}`, m + 60, fy + 56, { width: W - (m + 60) * 2, align: "center" });
+  }
+
   doc.end();
 }
 
