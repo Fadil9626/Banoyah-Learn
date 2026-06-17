@@ -40,7 +40,7 @@ export function AuthProvider({ children }) {
   const logout = () => { setToken(null); setUser(null); setOrg(null); };
 
   return (
-    <AuthContext.Provider value={{ user, org, loading, login, bootstrap, logout }}>
+    <AuthContext.Provider value={{ user, org, loading, login, bootstrap, logout, refresh: loadMe }}>
       {children}
     </AuthContext.Provider>
   );

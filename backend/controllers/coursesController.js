@@ -1,4 +1,5 @@
 const pool = require("../config/db");
+const audit = require("../lib/audit");
 
 // Load a course that belongs to the caller's org, or null.
 async function ownedCourse(orgId, courseId) {
@@ -95,6 +96,7 @@ const setStatus = async (req, res) => {
       if (Number(q) < 1) return res.status(400).json({ message: "Add at least one quiz question before publishing." });
     }
     const { rows } = await pool.query("UPDATE courses SET status=$1, updated_at=NOW() WHERE id=$2 RETURNING *", [status, course.id]);
+    audit.record(req, status === "published" ? "course.publish" : "course.unpublish", { target: course.title });
     return res.json(rows[0]);
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };

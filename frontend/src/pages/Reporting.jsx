@@ -1,17 +1,19 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "react-hot-toast";
-import { Users, ShieldCheck, Clock, AlertTriangle, Download, Loader2, BookOpen } from "lucide-react";
+import { Users, ShieldCheck, Clock, AlertTriangle, Download, Loader2, BookOpen, ClipboardCheck, CheckCircle2 } from "lucide-react";
 import api, { getToken } from "../lib/api";
 import PageHeader from "../components/PageHeader";
 
 export default function Reporting() {
   const [data, setData] = useState(null);
   const [expiring, setExpiring] = useState(null);
+  const [comp, setComp] = useState(null);
   const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     api("reports/summary").then(setData).catch((e) => toast.error(e.message));
     api("reports/expiring?days=30").then(setExpiring).catch(() => setExpiring([]));
+    api("reports/assignments").then(setComp).catch(() => setComp(null));
   }, []);
 
   const exportCsv = async () => {
@@ -87,6 +89,72 @@ export default function Reporting() {
           </table>
         )}
       </div>
+
+      {/* Required training */}
+      {comp && comp.totals.total > 0 && (() => {
+        const compRate = comp.totals.total ? Math.round((comp.totals.completed / comp.totals.total) * 100) : 0;
+        return (
+          <>
+            <h2 className="text-sm font-bold text-content mt-8 mb-3 flex items-center gap-2"><ClipboardCheck size={16} className="text-brand" /> Required training</h2>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <Stat icon={ClipboardCheck} tint="brand" value={`${compRate}%`} label="Training compliance" sub={`${comp.totals.completed} of ${comp.totals.total} assignments`} />
+              <Stat icon={Users} tint="brand-2" value={comp.totals.total} label="Assignments" />
+              <Stat icon={CheckCircle2} tint="ok" value={comp.totals.completed} label="Completed" />
+              <Stat icon={AlertTriangle} tint="danger" value={comp.totals.overdue} label="Overdue" />
+            </div>
+
+            <div className="card overflow-hidden mt-4">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-[11px] font-bold uppercase tracking-wide text-faint border-b border-line">
+                    <th className="px-5 py-3">Course</th>
+                    <th className="px-3 py-3 text-right">Assigned</th>
+                    <th className="px-3 py-3 text-right">Completed</th>
+                    <th className="px-3 py-3 text-right">Overdue</th>
+                    <th className="px-5 py-3 w-40">Completion</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {comp.by_course.map((c) => (
+                    <tr key={c.id} className="border-b border-line last:border-0">
+                      <td className="px-5 py-3 font-semibold text-content">{c.title}</td>
+                      <td className="px-3 py-3 text-right tabular-nums text-muted">{c.assigned}</td>
+                      <td className="px-3 py-3 text-right tabular-nums text-muted">{c.completed}</td>
+                      <td className="px-3 py-3 text-right tabular-nums" style={{ color: c.overdue ? "rgb(var(--danger))" : "rgb(var(--muted))" }}>{c.overdue}</td>
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-1.5 rounded-full bg-surface-2 overflow-hidden">
+                            <div className="h-full rounded-full" style={{ width: `${c.completion}%`, backgroundImage: "linear-gradient(90deg, rgb(var(--brand)), rgb(var(--brand-2)))" }} />
+                          </div>
+                          <span className="text-xs tabular-nums text-muted w-9 text-right">{c.completion}%</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {comp.overdue.length > 0 && (
+              <div className="card overflow-hidden mt-4">
+                <div className="px-5 py-3 border-b border-line text-xs font-bold text-danger flex items-center gap-2"><AlertTriangle size={14} /> Overdue people</div>
+                <div className="divide-y divide-line max-h-80 overflow-y-auto">
+                  {comp.overdue.map((o, i) => (
+                    <div key={i} className="flex items-center gap-4 px-5 py-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-content truncate">{o.learner}</p>
+                        <p className="text-xs text-muted truncate">{o.course}{o.external_id ? ` · ${o.external_id}` : ""}</p>
+                      </div>
+                      <span className="text-xs text-muted hidden sm:block">due {new Date(o.due_date).toLocaleDateString()}</span>
+                      <span className="chip" style={{ backgroundColor: "rgb(var(--danger) / 0.14)", color: "rgb(var(--danger))" }}>{o.days_overdue}d overdue</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       {/* Expiring soon */}
       <h2 className="text-sm font-bold text-content mt-8 mb-3 flex items-center gap-2"><Clock size={16} className="text-warn" /> Expiring & expired</h2>

@@ -1,4 +1,5 @@
 const pool = require("../config/db");
+const audit = require("../lib/audit");
 
 // Derive a status string from the joined enrollment/cert/due columns.
 function statusOf(r) {
@@ -43,6 +44,7 @@ const assign = async (req, res) => {
       );
       count++;
     }
+    audit.record(req, "assignment.create", { details: { course_id, assigned: count, due_date: due } });
     return res.status(201).json({ assigned: count });
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };

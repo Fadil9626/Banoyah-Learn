@@ -10,5 +10,6 @@ router.put("/mail", c.updateMail);
 router.post("/mail/test", c.testMail);
 router.put("/reminders", c.updateReminders);
 router.post("/reminders/run", c.runReminders);
+router.put("/branding", c.updateBranding);
 
 module.exports = router;

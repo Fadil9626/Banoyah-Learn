@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const { generateKey } = require("../lib/apiKeys");
+const audit = require("../lib/audit");
 
 const publicConsumer = (c) => ({
   id: c.id, name: c.name, key_prefix: c.key_prefix, scopes: c.scopes,
@@ -28,6 +29,7 @@ const create = async (req, res) => {
        VALUES ($1,$2,$3,$4,$5) RETURNING *`,
       [req.user.org_id, name.trim(), prefix, hash, req.user.id]
     );
+    audit.record(req, "apikey.create", { target: rows[0].name });
     // Return the full key exactly once — it cannot be retrieved again.
     return res.status(201).json({ ...publicConsumer(rows[0]), key: raw });
   } catch (e) { return res.status(500).json({ message: e.message }); }
@@ -41,6 +43,7 @@ const revoke = async (req, res) => {
       [req.params.id, req.user.org_id]
     );
     if (!rows.length) return res.status(404).json({ message: "Not found" });
+    audit.record(req, "apikey.revoke", { target: rows[0].name });
     return res.json(publicConsumer(rows[0]));
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };

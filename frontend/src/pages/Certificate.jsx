@@ -32,6 +32,8 @@ export default function Certificate() {
 
   if (!cert) return <div className="py-20 grid place-items-center text-muted"><Loader2 className="animate-spin" /></div>;
 
+  const accent = /^#[0-9a-fA-F]{6}$/.test(cert.brand_accent || "") ? cert.brand_accent : "#4F46E5";
+
   return (
     <div className="max-w-3xl mx-auto">
       <div className="flex items-center justify-between mb-5 print:hidden">
@@ -48,20 +50,20 @@ export default function Certificate() {
 
       {/* Certificate */}
       <div id="cert" className="relative rounded-2xl overflow-hidden border border-line bg-surface shadow-card">
-        <div className="h-2.5" style={{ backgroundImage: "linear-gradient(90deg, rgb(var(--brand)), rgb(var(--brand-2)))" }} />
+        <div className="h-2.5" style={{ backgroundColor: accent }} />
         <div className="p-10 sm:p-14 text-center">
-          <div className="flex items-center justify-center gap-2.5 mb-8">
-            <div className="w-9 h-9 rounded-xl grid place-items-center text-brand-fg" style={{ backgroundImage: "linear-gradient(135deg, rgb(var(--brand)), rgb(var(--brand-2)))" }}>
-              <GraduationCap size={20} />
-            </div>
+          <div className="flex flex-col items-center justify-center gap-2.5 mb-8">
+            {cert.brand_logo
+              ? <img src={cert.brand_logo} alt="" className="h-12 object-contain mb-1" />
+              : <div className="w-9 h-9 rounded-xl grid place-items-center text-white" style={{ backgroundColor: accent }}><GraduationCap size={20} /></div>}
             <span className="font-extrabold text-content tracking-tight">{cert.org_name}</span>
           </div>
 
-          <p className="text-xs font-bold uppercase tracking-[0.25em] text-faint">Certificate of Completion</p>
+          <p className="text-xs font-bold uppercase tracking-[0.25em]" style={{ color: accent }}>Certificate of Completion</p>
           <p className="text-sm text-muted mt-6">This certifies that</p>
           <h1 className="text-3xl sm:text-4xl font-black text-content mt-2 tracking-tight">{cert.learner_name}</h1>
           <p className="text-sm text-muted mt-6">has successfully completed</p>
-          <h2 className="text-xl font-bold text-brand mt-1">{cert.course_title}</h2>
+          <h2 className="text-xl font-bold mt-1" style={{ color: accent }}>{cert.course_title}</h2>
 
           <div className="flex items-center justify-center gap-1.5 mt-6 text-sm text-content">
             <ShieldCheck size={16} className="text-ok" /> Passed with a score of <strong>{cert.score}%</strong>

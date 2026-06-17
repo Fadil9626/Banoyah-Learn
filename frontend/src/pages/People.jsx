@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { toast } from "react-hot-toast";
-import { UserPlus, Search, X, Loader2, Mail, ShieldCheck, FileUp, Download, CheckCircle2, AlertTriangle } from "lucide-react";
+import { UserPlus, Search, X, Loader2, Mail, ShieldCheck, FileUp, Download, CheckCircle2, AlertTriangle, KeyRound } from "lucide-react";
 import api from "../lib/api";
 import PageHeader from "../components/PageHeader";
 
@@ -15,6 +15,7 @@ export default function People() {
   const [q, setQ] = useState("");
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [resetTarget, setResetTarget] = useState(null);
 
   const load = () => {
     const params = q ? `?q=${encodeURIComponent(q)}` : "";
@@ -64,10 +65,16 @@ export default function People() {
                     <ShieldCheck size={11} />{u.external_id}
                   </span>
                 )}
+                {!u.has_password && (
+                  <span className="chip flex-shrink-0" title="This person has no password and cannot sign in yet"
+                    style={{ backgroundColor: "rgb(var(--warn) / 0.14)", color: "rgb(var(--warn))" }}>No login</span>
+                )}
                 <span className="chip capitalize flex-shrink-0"
                   style={{ backgroundColor: ROLE_STYLE[u.role]?.bg, color: ROLE_STYLE[u.role]?.fg }}>
                   {u.role}
                 </span>
+                <button onClick={() => setResetTarget(u)} title={u.has_password ? "Reset password" : "Set password"}
+                  className="text-faint hover:text-brand p-1.5 flex-shrink-0"><KeyRound size={15} /></button>
               </div>
             ))}
           </div>
@@ -76,6 +83,41 @@ export default function People() {
 
       {adding && <AddModal onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load(); }} />}
       {importing && <ImportModal onClose={() => setImporting(false)} onDone={() => { setImporting(false); load(); }} />}
+      {resetTarget && <ResetModal user={resetTarget} onClose={() => setResetTarget(null)} onDone={() => { setResetTarget(null); load(); }} />}
+    </div>
+  );
+}
+
+function ResetModal({ user, onClose, onDone }) {
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const save = async (e) => {
+    e.preventDefault();
+    if (pw.length < 8) return toast.error("Password must be at least 8 characters");
+    setBusy(true);
+    try {
+      await api(`users/${user.id}`, { method: "PATCH", body: JSON.stringify({ password: pw }) });
+      toast.success(`Password ${user.has_password ? "reset" : "set"} for ${user.name}`);
+      onDone();
+    } catch (err) { toast.error(err.message); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="card w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-bold text-content text-lg">{user.has_password ? "Reset password" : "Set password"}</h3>
+          <button className="text-faint hover:text-content" onClick={onClose}><X size={18} /></button>
+        </div>
+        <p className="text-sm text-muted mb-4">Set a password for <span className="font-semibold text-content">{user.name}</span>. Share it with them to sign in; they can change it under My account.</p>
+        <form onSubmit={save} className="space-y-4">
+          <input type="text" className="input font-mono" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="New password (min 8 chars)" autoFocus />
+          <div className="flex gap-3">
+            <button type="button" className="btn-ghost flex-1" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn-brand flex-1" disabled={busy}>{busy ? <Loader2 size={16} className="animate-spin" /> : "Save"}</button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

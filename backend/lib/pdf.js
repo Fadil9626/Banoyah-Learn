@@ -18,25 +18,38 @@ function certificatePDF(cert, out) {
 
   const W = doc.page.width;   // 841.89
   const H = doc.page.height;  // 595.28
+  const accent = /^#[0-9a-fA-F]{6}$/.test(cert.brand_accent || "") ? cert.brand_accent : BRAND;
 
   // Accent bar across the top.
-  doc.rect(0, 0, W, 14).fill(BRAND);
+  doc.rect(0, 0, W, 14).fill(accent);
   doc.rect(0, 14, W, 4).fill(BRAND2);
 
   // Inner double border.
   const m = 36;
-  doc.lineWidth(2).strokeColor(BRAND).rect(m, m + 8, W - m * 2, H - m * 2 - 8).stroke();
+  doc.lineWidth(2).strokeColor(accent).rect(m, m + 8, W - m * 2, H - m * 2 - 8).stroke();
   doc.lineWidth(0.75).strokeColor("#CBD5E1").rect(m + 6, m + 14, W - m * 2 - 12, H - m * 2 - 20).stroke();
 
   const cx = W / 2;
-  let y = 78;
+  let y = 62;
+
+  // Optional organization logo (PNG/JPEG data URI), centered above the name.
+  if (cert.brand_logo && /^data:image\/(png|jpe?g);base64,/.test(cert.brand_logo)) {
+    try {
+      const buf = Buffer.from(cert.brand_logo.split(",")[1], "base64");
+      const lw = 90, lh = 50;
+      doc.image(buf, cx - lw / 2, y, { fit: [lw, lh], align: "center", valign: "center" });
+      y += lh + 12;
+    } catch { /* bad image — skip the logo, keep the certificate */ }
+  } else {
+    y = 78;
+  }
 
   // Organization name.
   doc.fillColor(INK).font("Helvetica-Bold").fontSize(15)
     .text((cert.org_name || "").toUpperCase(), 0, y, { width: W, align: "center", characterSpacing: 2 });
 
   y += 44;
-  doc.fillColor(BRAND).font("Helvetica-Bold").fontSize(11)
+  doc.fillColor(accent).font("Helvetica-Bold").fontSize(11)
     .text("CERTIFICATE OF COMPLETION", 0, y, { width: W, align: "center", characterSpacing: 4 });
 
   y += 46;
@@ -52,7 +65,7 @@ function certificatePDF(cert, out) {
     .text("has successfully completed", 0, y, { width: W, align: "center" });
 
   y += 24;
-  doc.fillColor(BRAND).font("Times-Bold").fontSize(22)
+  doc.fillColor(accent).font("Times-Bold").fontSize(22)
     .text(cert.course_title || "", 60, y, { width: W - 120, align: "center" });
 
   y += 42;

@@ -2,9 +2,16 @@ import React, { useEffect, useState } from "react";
 import { toast } from "react-hot-toast";
 import {
   Plus, Plug, Loader2, X, Copy, Check, Trash2, Ban, KeyRound, ShieldAlert, Terminal,
+  Webhook, Send,
 } from "lucide-react";
 import api from "../lib/api";
 import PageHeader from "../components/PageHeader";
+
+const EVENT_LABEL = {
+  "certification.completed": "Certification completed",
+  "certification.expired": "Certification expired",
+  "assignment.overdue": "Assignment overdue",
+};
 
 export default function ApiAccess() {
   const [rows, setRows] = useState(null);
@@ -73,9 +80,143 @@ export default function ApiAccess() {
         <Docs />
       </div>
 
+      <Webhooks />
+
       {creating && <CreateModal onClose={() => setCreating(false)}
         onCreated={(c) => { setCreating(false); setNewKey(c); load(); }} />}
       {newKey && <RevealModal data={newKey} onClose={() => setNewKey(null)} />}
+    </div>
+  );
+}
+
+function Webhooks() {
+  const [eps, setEps] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [adding, setAdding] = useState(false);
+  const [secret, setSecret] = useState(null);
+  const [testing, setTesting] = useState(null);
+
+  const load = () => api("webhooks").then((d) => { setEps(d.endpoints); setEvents(d.available_events); }).catch((e) => { toast.error(e.message); setEps([]); });
+  useEffect(() => { load(); }, []);
+
+  const del = async (ep) => {
+    if (!confirm("Delete this webhook endpoint?")) return;
+    try { await api(`webhooks/${ep.id}`, { method: "DELETE" }); toast.success("Deleted"); load(); }
+    catch (e) { toast.error(e.message); }
+  };
+  const test = async (ep) => {
+    setTesting(ep.id);
+    try { const r = await api(`webhooks/${ep.id}/test`, { method: "POST" }); r.ok ? toast.success(`Delivered (HTTP ${r.status})`) : toast.error(`Endpoint returned ${r.status || "no response"}`); load(); }
+    catch (e) { toast.error(e.message); }
+    finally { setTesting(null); }
+  };
+
+  return (
+    <div className="mt-8">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-bold text-content flex items-center gap-2"><Webhook size={16} className="text-brand" /> Webhooks</h2>
+        <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => setAdding(true)}><Plus size={14} /> Add endpoint</button>
+      </div>
+      <p className="text-xs text-muted mb-3">Get a signed POST when events happen — no polling. Verify <code className="font-mono text-content">X-Learn-Signature</code> = HMAC-SHA256(body, secret).</p>
+
+      <div className="card overflow-hidden">
+        {eps == null ? (
+          <div className="py-12 grid place-items-center text-muted"><Loader2 className="animate-spin" /></div>
+        ) : eps.length === 0 ? (
+          <div className="py-12 text-center text-muted text-sm">No webhook endpoints yet.</div>
+        ) : (
+          <div className="divide-y divide-line">
+            {eps.map((ep) => (
+              <div key={ep.id} className="flex items-center gap-3 px-5 py-4">
+                <div className="w-9 h-9 rounded-lg grid place-items-center flex-shrink-0 bg-brand/12 text-brand"><Webhook size={16} /></div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-content truncate font-mono">{ep.url}</p>
+                  <p className="text-xs text-muted truncate">{(ep.events || []).map((e) => EVENT_LABEL[e] || e).join(" · ")}</p>
+                </div>
+                {ep.last_status != null && (
+                  <span className="chip hidden sm:inline-flex" style={{ backgroundColor: ep.last_status >= 200 && ep.last_status < 300 ? "rgb(var(--ok) / 0.14)" : "rgb(var(--danger) / 0.14)", color: ep.last_status >= 200 && ep.last_status < 300 ? "rgb(var(--ok))" : "rgb(var(--danger))" }}>
+                    {ep.last_status || "no resp"}
+                  </span>
+                )}
+                <button onClick={() => test(ep)} disabled={testing === ep.id} title="Send test" className="text-faint hover:text-brand p-2">{testing === ep.id ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}</button>
+                <button onClick={() => del(ep)} title="Delete" className="text-faint hover:text-danger p-2"><Trash2 size={15} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {adding && <AddWebhook events={events} onClose={() => setAdding(false)} onCreated={(d) => { setAdding(false); setSecret(d); load(); }} />}
+      {secret && <SecretModal data={secret} onClose={() => setSecret(null)} />}
+    </div>
+  );
+}
+
+function AddWebhook({ events, onClose, onCreated }) {
+  const [url, setUrl] = useState("");
+  const [picked, setPicked] = useState(new Set());
+  const [busy, setBusy] = useState(false);
+  const toggle = (e) => setPicked((s) => { const n = new Set(s); n.has(e) ? n.delete(e) : n.add(e); return n; });
+
+  const save = async (ev) => {
+    ev.preventDefault();
+    if (!picked.size) return toast.error("Select at least one event");
+    setBusy(true);
+    try { onCreated(await api("webhooks", { method: "POST", body: JSON.stringify({ url, events: [...picked] }) })); }
+    catch (e) { toast.error(e.message); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="card w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-bold text-content text-lg">Add webhook endpoint</h3>
+          <button className="text-faint hover:text-content" onClick={onClose}><X size={18} /></button>
+        </div>
+        <form onSubmit={save} className="space-y-4">
+          <div>
+            <label className="label">Endpoint URL</label>
+            <input className="input font-mono text-xs" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://your-system.example.com/hooks/learn" autoFocus />
+          </div>
+          <div>
+            <label className="label">Events</label>
+            <div className="space-y-1.5">
+              {events.map((e) => (
+                <button type="button" key={e} onClick={() => toggle(e)} className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-surface-2 transition text-left">
+                  <span className={`w-5 h-5 rounded-md border-2 grid place-items-center flex-shrink-0 ${picked.has(e) ? "border-brand bg-brand text-white" : "border-line"}`}>{picked.has(e) && <Check size={12} />}</span>
+                  <span className="text-sm text-content">{EVENT_LABEL[e] || e}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button type="button" className="btn-ghost flex-1" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn-brand flex-1" disabled={busy}>{busy ? <Loader2 size={16} className="animate-spin" /> : "Create"}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function SecretModal({ data, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => { navigator.clipboard.writeText(data.secret); setCopied(true); toast.success("Copied"); setTimeout(() => setCopied(false), 1500); };
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="card w-full max-w-lg p-6">
+        <h3 className="font-bold text-content text-lg flex items-center gap-2"><Webhook size={18} className="text-brand" /> Endpoint created</h3>
+        <div className="mt-4 flex items-start gap-2 rounded-xl p-3 text-sm" style={{ backgroundColor: "rgb(var(--warn) / 0.12)", color: "rgb(var(--warn))" }}>
+          <ShieldAlert size={16} className="flex-shrink-0 mt-0.5" />
+          <span>Save this signing secret now — it won't be shown again. Use it to verify the <code className="font-mono">X-Learn-Signature</code> header.</span>
+        </div>
+        <div className="mt-4 flex items-center gap-2 rounded-xl bg-surface-2 border border-line p-3">
+          <code className="flex-1 font-mono text-xs text-content break-all">{data.secret}</code>
+          <button onClick={copy} className="btn-ghost px-3 py-2 flex-shrink-0">{copied ? <Check size={15} className="text-ok" /> : <Copy size={15} />}</button>
+        </div>
+        <button onClick={onClose} className="btn-brand w-full mt-5">Done</button>
+      </div>
     </div>
   );
 }

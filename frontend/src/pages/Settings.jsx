@@ -1,16 +1,19 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { toast } from "react-hot-toast";
-import { Mail, BellRing, Loader2, Check, Send, Play, Clock } from "lucide-react";
+import { Mail, BellRing, Loader2, Check, Send, Play, Clock, Building2, Upload, ImageOff, X } from "lucide-react";
 import api from "../lib/api";
 import PageHeader from "../components/PageHeader";
 
 const TABS = [
+  { key: "org", label: "Organization", icon: Building2 },
   { key: "email", label: "Email", icon: Mail },
   { key: "reminders", label: "Reminders", icon: BellRing },
 ];
 
+const ACCENTS = ["#4F46E5", "#7C3AED", "#2563EB", "#059669", "#D97706", "#E11D48", "#0891B2"];
+
 export default function Settings() {
-  const [tab, setTab] = useState("email");
+  const [tab, setTab] = useState("org");
   const [data, setData] = useState(null);
 
   const load = () => api("settings").then(setData).catch((e) => toast.error(e.message));
@@ -30,6 +33,7 @@ export default function Settings() {
         ))}
       </div>
       {!data ? <div className="py-16 grid place-items-center text-muted"><Loader2 className="animate-spin" /></div>
+        : tab === "org" ? <BrandingTab data={data.branding} reload={load} />
         : tab === "email" ? <EmailTab data={data.mail} reload={load} />
         : <RemindersTab data={data.reminders} runtime={data.runtime} reload={load} />}
     </div>
@@ -163,4 +167,80 @@ function RemindersTab({ data, runtime, reload }) {
 
 function Field({ label, hint, children }) {
   return <div><label className="label">{label}</label>{children}{hint && <p className="text-[11px] text-faint mt-1">{hint}</p>}</div>;
+}
+
+function BrandingTab({ data, reload }) {
+  const [f, setF] = useState({ org_name: data.org_name, brand_accent: data.brand_accent, brand_logo: data.brand_logo });
+  const [saving, setSaving] = useState(false);
+  const ref = useRef();
+  const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
+
+  const onLogo = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!/^image\/(png|jpe?g)$/.test(file.type)) return toast.error("Logo must be a PNG or JPEG");
+    if (file.size > 900_000) return toast.error("Logo must be under ~900 KB");
+    const reader = new FileReader();
+    reader.onload = (ev) => set("brand_logo", String(ev.target.result || ""));
+    reader.readAsDataURL(file);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api("settings/branding", { method: "PUT", body: JSON.stringify(f) });
+      toast.success("Branding saved"); reload();
+    } catch (e) { toast.error(e.message); } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="max-w-2xl space-y-6">
+      <Field label="Organization name" hint="Shown on certificates and in emails.">
+        <input className="input" value={f.org_name} onChange={(e) => set("org_name", e.target.value)} />
+      </Field>
+
+      <div>
+        <label className="label">Certificate logo <span className="text-faint font-normal">(PNG or JPEG)</span></label>
+        <div className="flex items-center gap-4">
+          <div onClick={() => ref.current?.click()}
+            className="w-28 h-16 rounded-xl border-2 border-dashed border-line hover:border-brand cursor-pointer grid place-items-center overflow-hidden bg-surface-2/40 flex-shrink-0">
+            {f.brand_logo ? <img src={f.brand_logo} alt="logo" className="w-full h-full object-contain" /> : <ImageOff size={20} className="text-faint" />}
+          </div>
+          <div className="space-y-1.5">
+            <button type="button" onClick={() => ref.current?.click()} className="btn-ghost px-3 py-1.5 text-xs"><Upload size={13} /> Upload logo</button>
+            {f.brand_logo && <button type="button" onClick={() => set("brand_logo", "")} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-faint hover:text-danger"><X size={12} /> Remove</button>}
+          </div>
+          <input ref={ref} type="file" accept="image/png,image/jpeg" className="hidden" onChange={onLogo} />
+        </div>
+      </div>
+
+      <div>
+        <label className="label">Accent colour</label>
+        <div className="flex items-center gap-2 flex-wrap">
+          {ACCENTS.map((c) => (
+            <button key={c} type="button" onClick={() => set("brand_accent", c)}
+              className={`w-8 h-8 rounded-lg transition ${f.brand_accent?.toLowerCase() === c.toLowerCase() ? "ring-2 ring-offset-2 ring-offset-surface" : ""}`}
+              style={{ backgroundColor: c, boxShadow: f.brand_accent?.toLowerCase() === c.toLowerCase() ? `0 0 0 2px ${c}` : "none" }} />
+          ))}
+          <input value={f.brand_accent} onChange={(e) => set("brand_accent", e.target.value)} className="input w-28 ml-1 font-mono text-xs" placeholder="#4F46E5" />
+        </div>
+      </div>
+
+      {/* Live preview */}
+      <div>
+        <label className="label">Preview</label>
+        <div className="rounded-2xl border border-line overflow-hidden">
+          <div className="h-2" style={{ backgroundColor: f.brand_accent }} />
+          <div className="p-6 text-center bg-surface">
+            {f.brand_logo && <img src={f.brand_logo} alt="" className="h-10 mx-auto mb-3 object-contain" />}
+            <p className="text-sm font-extrabold text-content tracking-wide">{(f.org_name || "Organization").toUpperCase()}</p>
+            <p className="text-[10px] font-bold tracking-[0.2em] mt-2" style={{ color: f.brand_accent }}>CERTIFICATE OF COMPLETION</p>
+          </div>
+        </div>
+      </div>
+
+      <button onClick={save} disabled={saving} className="btn-brand">{saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Save branding</button>
+    </div>
+  );
 }

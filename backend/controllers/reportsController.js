@@ -75,6 +75,59 @@ const expiring = async (req, res) => {
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 
+// ── GET /api/reports/assignments ─────────────────────────────────────────────
+// Required-training compliance: org totals, per-course completion, overdue list.
+// "completed" = a valid (non-expired) certificate exists for the assigned course.
+const assignmentCompliance = async (req, res) => {
+  const org = req.user.org_id;
+  // A reusable expression: does this assignment have a valid certificate?
+  const COMPLETED = "(cert.id IS NOT NULL AND (cert.certified_until IS NULL OR cert.certified_until > NOW()))";
+  const OVERDUE = `(NOT ${COMPLETED} AND a.due_date IS NOT NULL AND a.due_date < CURRENT_DATE)`;
+  const join = `FROM assignments a
+                LEFT JOIN certificates cert ON cert.user_id=a.user_id AND cert.course_id=a.course_id
+                WHERE a.org_id=$1`;
+  try {
+    const { rows: [t] } = await pool.query(
+      `SELECT COUNT(*) AS total,
+              COUNT(*) FILTER (WHERE ${COMPLETED}) AS completed,
+              COUNT(*) FILTER (WHERE ${OVERDUE})   AS overdue
+       ${join}`, [org]
+    );
+    const { rows: byCourse } = await pool.query(
+      `SELECT c.id, c.title,
+              COUNT(a.id) AS assigned,
+              COUNT(*) FILTER (WHERE ${COMPLETED}) AS completed,
+              COUNT(*) FILTER (WHERE ${OVERDUE})   AS overdue
+       FROM assignments a
+       JOIN courses c ON c.id=a.course_id
+       LEFT JOIN certificates cert ON cert.user_id=a.user_id AND cert.course_id=a.course_id
+       WHERE a.org_id=$1
+       GROUP BY c.id, c.title ORDER BY c.title`, [org]
+    );
+    const { rows: overdue } = await pool.query(
+      `SELECT u.name AS learner, u.email, u.external_id, c.title AS course, a.due_date
+       FROM assignments a
+       JOIN users u ON u.id=a.user_id
+       JOIN courses c ON c.id=a.course_id
+       LEFT JOIN certificates cert ON cert.user_id=a.user_id AND cert.course_id=a.course_id
+       WHERE a.org_id=$1 AND a.due_date IS NOT NULL AND a.due_date < CURRENT_DATE
+         AND NOT ${COMPLETED}
+       ORDER BY a.due_date ASC LIMIT 100`, [org]
+    );
+    return res.json({
+      totals: { total: +t.total, completed: +t.completed, overdue: +t.overdue },
+      by_course: byCourse.map((r) => ({
+        id: r.id, title: r.title, assigned: +r.assigned, completed: +r.completed, overdue: +r.overdue,
+        completion: +r.assigned ? Math.round((+r.completed / +r.assigned) * 100) : 0,
+      })),
+      overdue: overdue.map((r) => ({
+        learner: r.learner, email: r.email, external_id: r.external_id, course: r.course,
+        due_date: r.due_date, days_overdue: Math.max(0, -daysLeft(r.due_date)),
+      })),
+    });
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+};
+
 // ── GET /api/reports/register ────────────────────────────────────────────────
 // Every certificate in the org (the Certificates admin page). Optional ?q= search.
 const register = async (req, res) => {
@@ -141,4 +194,4 @@ const exportCsv = async (req, res) => {
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 
-module.exports = { summary, expiring, register, exportCsv };
+module.exports = { summary, expiring, assignmentCompliance, register, exportCsv };

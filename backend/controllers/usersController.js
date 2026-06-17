@@ -1,10 +1,11 @@
 const bcrypt = require("bcryptjs");
 const pool = require("../config/db");
+const audit = require("../lib/audit");
 
 const publicUser = (u) => ({
   id: u.id, org_id: u.org_id, name: u.name, email: u.email, role: u.role,
   job_title: u.job_title, external_id: u.external_id, is_active: u.is_active,
-  created_at: u.created_at,
+  has_password: !!u.password_hash, created_at: u.created_at,
 });
 
 // ── GET /api/users ─────────────────────────────────────────────────────────
@@ -40,6 +41,7 @@ const create = async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
       [req.user.org_id, name, email.toLowerCase().trim(), r, job_title || null, external_id || null, hash]
     );
+    audit.record(req, "user.create", { target: rows[0].email, details: { role: r } });
     return res.status(201).json(publicUser(rows[0]));
   } catch (e) {
     if (e.code === "23505") return res.status(409).json({ message: "A user with that email or external ID already exists" });
@@ -64,6 +66,7 @@ const update = async (req, res) => {
        WHERE id=$${i++} AND org_id=$${i} RETURNING *`, vals
     );
     if (!rows.length) return res.status(404).json({ message: "User not found" });
+    if (req.body.password) audit.record(req, "user.password_reset", { target: rows[0].email });
     return res.json(publicUser(rows[0]));
   } catch (e) {
     if (e.code === "23505") return res.status(409).json({ message: "Duplicate email or external ID" });
@@ -147,6 +150,7 @@ const importUsers = async (req, res) => {
       errors.push({ row: r + 1, reason: e.code === "23505" ? `duplicate external ID: ${ext}` : e.message });
     }
   }
+  audit.record(req, "user.import", { details: { created, skipped, errors: errors.length } });
   return res.json({ created, skipped, errors });
 };
 

@@ -1,6 +1,7 @@
 const bcrypt = require("bcryptjs");
 const pool = require("../config/db");
 const { sign } = require("../lib/jwt");
+const audit = require("../lib/audit");
 
 const slugify = (s) =>
   String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 100) || "org";
@@ -73,6 +74,7 @@ const login = async (req, res) => {
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) return res.status(401).json({ message: "Invalid credentials" });
     const token = sign({ id: user.id, org_id: user.org_id, role: user.role, name: user.name });
+    audit.record(req, "user.login", { actor: user });
     return res.json({ token, user: publicUser(user) });
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
@@ -91,4 +93,35 @@ const me = async (req, res) => {
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 
-module.exports = { bootstrap, status, login, me };
+// ── PUT /api/auth/profile ────────────────────────────────────────────────────
+const updateProfile = async (req, res) => {
+  const { name } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ message: "Name is required" });
+  try {
+    await pool.query("UPDATE users SET name=$1, updated_at=NOW() WHERE id=$2", [name.trim(), req.user.id]);
+    return res.json({ message: "Profile updated", name: name.trim() });
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+};
+
+// ── PUT /api/auth/password ───────────────────────────────────────────────────
+// Change your own password. If you already have one, the current password is
+// required (a freshly-imported user with no password can set one directly).
+const changePassword = async (req, res) => {
+  const { current_password, new_password } = req.body;
+  if (!new_password || String(new_password).length < 8)
+    return res.status(400).json({ message: "New password must be at least 8 characters" });
+  try {
+    const { rows } = await pool.query("SELECT password_hash FROM users WHERE id=$1", [req.user.id]);
+    const u = rows[0];
+    if (u?.password_hash) {
+      const ok = await bcrypt.compare(current_password || "", u.password_hash);
+      if (!ok) return res.status(401).json({ message: "Current password is incorrect" });
+    }
+    const hash = await bcrypt.hash(new_password, 12);
+    await pool.query("UPDATE users SET password_hash=$1, updated_at=NOW() WHERE id=$2", [hash, req.user.id]);
+    audit.record(req, "user.password_change");
+    return res.json({ message: "Password updated" });
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+};
+
+module.exports = { bootstrap, status, login, me, updateProfile, changePassword };

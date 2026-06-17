@@ -10,6 +10,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 const pool = require("../config/db");
 const mailer = require("./mailer");
+const webhooks = require("./webhooks");
 
 const DAY = 86_400_000;
 const DEFAULTS = { enabled: true, days: [30, 7, 1], interval_min: 720 };
@@ -51,8 +52,8 @@ async function runReminderCycle(trigger = "scheduled") {
     const brand = await brandFor(orgId);
 
     const certs = (await pool.query(
-      `SELECT cert.id, cert.certified_until, cert.last_reminder_day,
-              c.title AS course, u.name AS learner_name, u.email AS learner_email
+      `SELECT cert.id, cert.certified_until, cert.last_reminder_day, cert.serial, cert.course_id,
+              c.title AS course, u.name AS learner_name, u.email AS learner_email, u.external_id
        FROM certificates cert
        JOIN courses c ON c.id=cert.course_id
        JOIN users u ON u.id=cert.user_id
@@ -74,6 +75,10 @@ async function runReminderCycle(trigger = "scheduled") {
           const tpl = mailer.expiredEmail({ name: cert.learner_name, course: cert.course, brand });
           const r = await mailer.sendMail({ to: cert.learner_email, ...tpl }, mailCfg);
           await pool.query("UPDATE certificates SET last_reminder_day=0 WHERE id=$1", [cert.id]);
+          webhooks.emit(orgId, "certification.expired", {
+            external_id: cert.external_id || null, learner: cert.learner_name,
+            course: cert.course, course_id: cert.course_id, serial: cert.serial,
+          });
           summary.expired++; if (r.ok) summary.emailed++; else summary.errors += r.error ? 1 : 0;
           continue;
         }
@@ -93,8 +98,8 @@ async function runReminderCycle(trigger = "scheduled") {
     // ── Assignment due-date reminders ────────────────────────────────────────
     // Assigned + published + not yet completed (no valid certificate).
     const assigns = (await pool.query(
-      `SELECT a.id, a.due_date, a.last_reminder_day,
-              c.title AS course, u.name AS learner_name, u.email AS learner_email
+      `SELECT a.id, a.due_date, a.last_reminder_day, a.course_id,
+              c.title AS course, u.name AS learner_name, u.email AS learner_email, u.external_id
        FROM assignments a
        JOIN courses c ON c.id=a.course_id AND c.status='published'
        JOIN users u ON u.id=a.user_id
@@ -117,6 +122,10 @@ async function runReminderCycle(trigger = "scheduled") {
           const tpl = mailer.assignmentOverdueEmail({ name: a.learner_name, course: a.course, dueDate: a.due_date, brand });
           const r = await mailer.sendMail({ to: a.learner_email, ...tpl }, mailCfg);
           await pool.query("UPDATE assignments SET last_reminder_day=0 WHERE id=$1", [a.id]);
+          webhooks.emit(orgId, "assignment.overdue", {
+            external_id: a.external_id || null, learner: a.learner_name,
+            course: a.course, course_id: a.course_id, due_date: a.due_date,
+          });
           summary.assignment_overdue++; if (r.ok) summary.emailed++; else summary.errors += r.error ? 1 : 0;
           continue;
         }

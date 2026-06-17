@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const mailer = require("../lib/mailer");
 const scheduler = require("../lib/scheduler");
+const audit = require("../lib/audit");
 
 const REMINDER_DEFAULTS = { reminder_enabled: "true", reminder_days: "30,7,1", reminder_interval_min: "720" };
 
@@ -19,7 +20,13 @@ async function readSettings(orgId) {
 const get = async (req, res) => {
   try {
     const s = await readSettings(req.user.org_id);
+    const org = (await pool.query("SELECT name FROM organizations WHERE id=$1", [req.user.org_id])).rows[0];
     return res.json({
+      branding: {
+        org_name:     org?.name || "",
+        brand_accent: s.brand_accent || "#4F46E5",
+        brand_logo:   s.brand_logo || "",
+      },
       mail: {
         mail_enabled:   s.mail_enabled === "true",
         smtp_host:      s.smtp_host || "",
@@ -55,6 +62,7 @@ const updateMail = async (req, res) => {
   try {
     for (const [k, fmt] of Object.entries(map)) if (req.body[k] !== undefined) await setSetting(org, k, fmt(req.body[k]));
     if (req.body.smtp_pass) await setSetting(org, "smtp_pass", req.body.smtp_pass); // only when provided
+    audit.record(req, "settings.email");
     return get(req, res);
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
@@ -71,6 +79,7 @@ const updateReminders = async (req, res) => {
     }
     if (req.body.reminder_interval_min !== undefined)
       await setSetting(org, "reminder_interval_min", String(Math.max(30, parseInt(req.body.reminder_interval_min, 10) || 720)));
+    audit.record(req, "settings.reminders");
     return get(req, res);
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
@@ -104,4 +113,25 @@ const runReminders = async (req, res) => {
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 
-module.exports = { get, updateMail, updateReminders, testMail, runReminders };
+// ── PUT /api/settings/branding ───────────────────────────────────────────────
+// Organization name, certificate accent colour, and logo (PNG/JPEG data URI).
+const updateBranding = async (req, res) => {
+  const org = req.user.org_id;
+  try {
+    if (typeof req.body.org_name === "string" && req.body.org_name.trim())
+      await pool.query("UPDATE organizations SET name=$1 WHERE id=$2", [req.body.org_name.trim(), org]);
+    if (typeof req.body.brand_accent === "string" && /^#[0-9a-fA-F]{6}$/.test(req.body.brand_accent))
+      await setSetting(org, "brand_accent", req.body.brand_accent);
+    if (req.body.brand_logo !== undefined) {
+      const logo = req.body.brand_logo || "";
+      if (logo && !/^data:image\/(png|jpe?g);base64,/.test(logo))
+        return res.status(400).json({ message: "Logo must be a PNG or JPEG image" });
+      if (logo.length > 1_400_000) return res.status(400).json({ message: "Logo is too large (max ~1 MB)" });
+      await setSetting(org, "brand_logo", logo);
+    }
+    audit.record(req, "settings.branding");
+    return get(req, res);
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+};
+
+module.exports = { get, updateMail, updateReminders, testMail, runReminders, updateBranding };

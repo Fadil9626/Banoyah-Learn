@@ -1,6 +1,8 @@
 const crypto = require("crypto");
 const pool = require("../config/db");
 const { certificatePDF } = require("../lib/pdf");
+const audit = require("../lib/audit");
+const webhooks = require("../lib/webhooks");
 
 // Short, human-ish unique certificate serial, e.g. BL-7F3A9C2E.
 const makeSerial = () => "BL-" + crypto.randomBytes(4).toString("hex").toUpperCase();
@@ -135,6 +137,13 @@ const submitQuiz = async (req, res) => {
          RETURNING *`,
         [req.user.org_id, req.user.id, course.id, makeSerial(), score, until]
       )).rows[0];
+      audit.record(req, "certificate.issue", { target: course.title, details: { score, serial: certificate.serial } });
+      const ext = (await pool.query("SELECT external_id FROM users WHERE id=$1", [req.user.id])).rows[0]?.external_id || null;
+      webhooks.emit(req.user.org_id, "certification.completed", {
+        external_id: ext, learner: req.user.name, user_id: req.user.id,
+        course: course.title, course_id: course.id, serial: certificate.serial,
+        score, certified_until: certificate.certified_until,
+      });
     }
 
     return res.json({ score, passed, pass_mark: course.pass_mark, correct, total: questions.length, review, certificate });
@@ -173,7 +182,8 @@ const getCertificate = async (req, res) => {
       [req.params.serial, req.user.id]
     );
     if (!rows.length) return res.status(404).json({ message: "Certificate not found" });
-    return res.json(rows[0]);
+    const brand = await loadBrand(req.user.org_id);
+    return res.json({ ...rows[0], brand_accent: brand.accent, brand_logo: brand.logo });
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 
@@ -191,12 +201,22 @@ const downloadCertificate = async (req, res) => {
       [req.params.serial, req.user.id]
     );
     if (!rows.length) return res.status(404).json({ message: "Certificate not found" });
+    const brand = await loadBrand(req.user.org_id);
     const safe = String(rows[0].course_title).replace(/[^a-z0-9]+/gi, "-").toLowerCase();
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="certificate-${safe}-${rows[0].serial}.pdf"`);
-    certificatePDF(rows[0], res);
+    certificatePDF({ ...rows[0], brand_accent: brand.accent, brand_logo: brand.logo }, res);
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
+
+// Load this org's certificate branding (accent + optional logo data URI).
+async function loadBrand(orgId) {
+  const { rows } = await pool.query(
+    "SELECT key, value FROM org_settings WHERE org_id=$1 AND key IN ('brand_accent','brand_logo')", [orgId]
+  );
+  const m = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  return { accent: m.brand_accent || "#4F46E5", logo: m.brand_logo || "" };
+}
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 async function publishedCourse(orgId, courseId) {

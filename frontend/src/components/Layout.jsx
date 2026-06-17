@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, BookOpen, Award, Plug, BarChart3,
-  Settings, LogOut, Menu, X, GraduationCap,
+  Settings, LogOut, Menu, X, GraduationCap, ScrollText,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import Brand from "./Brand";
@@ -17,6 +17,7 @@ const NAV = [
   { to: "/certificates", label: "Certificates", icon: Award, staff: true },
   { to: "/reporting", label: "Reporting", icon: BarChart3, staff: true },
   { to: "/api-access", label: "API access", icon: Plug, staff: true },
+  { to: "/audit", label: "Audit log", icon: ScrollText, admin: true },
 ];
 
 export default function Layout({ children }) {
@@ -27,7 +28,8 @@ export default function Layout({ children }) {
   const doLogout = () => { logout(); navigate("/login", { replace: true }); };
 
   const isStaff = user?.role === "admin" || user?.role === "instructor";
-  const nav = NAV.filter((n) => !n.staff || isStaff);
+  const isAdmin = user?.role === "admin";
+  const nav = NAV.filter((n) => (!n.staff || isStaff) && (!n.admin || isAdmin));
 
   return (
     <div className="min-h-full flex bg-bg">
@@ -88,14 +90,16 @@ export default function Layout({ children }) {
           <div className="ml-auto flex items-center gap-3">
             <ThemeToggle />
             <div className="flex items-center gap-2.5 pl-3 border-l border-line">
-              <div className="w-8 h-8 rounded-full grid place-items-center text-xs font-bold text-brand-fg"
-                style={{ backgroundImage: "linear-gradient(135deg, rgb(var(--brand)), rgb(var(--brand-2)))" }}>
-                {(user?.name || "?").slice(0, 1).toUpperCase()}
-              </div>
-              <div className="hidden sm:block leading-tight">
-                <p className="text-xs font-bold text-content">{user?.name}</p>
-                <p className="text-[10px] text-faint capitalize">{user?.role}</p>
-              </div>
+              <NavLink to="/profile" className="flex items-center gap-2.5 rounded-xl px-1.5 py-1 -mx-1.5 hover:bg-surface-2 transition" title="My account">
+                <div className="w-8 h-8 rounded-full grid place-items-center text-xs font-bold text-brand-fg"
+                  style={{ backgroundImage: "linear-gradient(135deg, rgb(var(--brand)), rgb(var(--brand-2)))" }}>
+                  {(user?.name || "?").slice(0, 1).toUpperCase()}
+                </div>
+                <div className="hidden sm:block leading-tight text-left">
+                  <p className="text-xs font-bold text-content">{user?.name}</p>
+                  <p className="text-[10px] text-faint capitalize">{user?.role}</p>
+                </div>
+              </NavLink>
               <button onClick={doLogout} title="Sign out"
                 className="ml-1 text-faint hover:text-danger transition">
                 <LogOut size={17} />
