@@ -9,6 +9,7 @@ router.post("/bootstrap", c.bootstrap);
 router.post("/login", c.login);
 router.post("/forgot", c.forgot);
 router.post("/reset", c.resetPassword);
+router.post("/sso", c.sso);
 
 // Authenticated
 router.get("/me", protect, c.me);

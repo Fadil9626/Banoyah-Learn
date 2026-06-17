@@ -1,6 +1,8 @@
+const crypto = require("crypto");
 const pool = require("../config/db");
 
 const isExpired = (until) => !!until && new Date(until) < new Date();
+const sha256 = (s) => crypto.createHash("sha256").update(s).digest("hex");
 
 const shapeCert = (r) => ({
   course_id: r.course_id,
@@ -94,4 +96,34 @@ const courses = async (req, res) => {
   } catch (e) { return res.status(500).json({ error: e.message }); }
 };
 
-module.exports = { certifications, verify, courses };
+// ── POST /api/v1/login-link ──────────────────────────────────────────────────
+// A trusted consumer (with a valid API key) requests a one-time login link for a
+// staff member, identified by email. The learner is auto-provisioned in the
+// consumer's org if they don't exist yet. The returned URL logs them straight in.
+// Body: { email, name? }. Token is single-use and valid for 2 minutes.
+const loginLink = async (req, res) => {
+  const orgId = req.consumer.org_id;
+  const email = (req.body.email || "").toLowerCase().trim();
+  const name = (req.body.name || "").trim();
+  if (!email) return res.status(400).json({ error: "email is required" });
+  try {
+    let user = (await pool.query("SELECT * FROM users WHERE org_id=$1 AND email=$2", [orgId, email])).rows[0];
+    if (!user) {
+      user = (await pool.query(
+        "INSERT INTO users (org_id, name, email, role) VALUES ($1,$2,$3,'learner') RETURNING *",
+        [orgId, name || email.split("@")[0], email]
+      )).rows[0];
+    } else if (name && !user.name) {
+      await pool.query("UPDATE users SET name=$1 WHERE id=$2", [name, user.id]);
+    }
+    const token = crypto.randomBytes(32).toString("hex");
+    await pool.query(
+      "UPDATE users SET login_token_hash=$1, login_expires_at=NOW()+INTERVAL '2 minutes' WHERE id=$2",
+      [sha256(token), user.id]
+    );
+    const base = `${req.protocol}://${req.get("host")}`;
+    return res.json({ url: `${base}/sso/${token}`, provisioned: !user.password_hash });
+  } catch (e) { return res.status(500).json({ error: e.message }); }
+};
+
+module.exports = { certifications, verify, courses, loginLink };

@@ -224,4 +224,24 @@ const disable2fa = async (req, res) => {
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 
-module.exports = { bootstrap, status, login, me, updateProfile, changePassword, forgot, resetPassword, start2fa, enable2fa, disable2fa };
+// ── POST /api/auth/sso ─────────────────────────────────────────────────────
+// Public. Consumes a one-time login token (minted via /api/v1/login-link) and
+// returns a normal session — this is how a consumer system (ELIMS) hands a user
+// straight into Learn. Single-use: the token is cleared on success.
+const sso = async (req, res) => {
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ message: "Token is required" });
+  try {
+    const u = (await pool.query(
+      "SELECT * FROM users WHERE login_token_hash=$1 AND login_expires_at > NOW() AND is_active=true LIMIT 1",
+      [sha256(token)]
+    )).rows[0];
+    if (!u) return res.status(400).json({ message: "This sign-in link is invalid or has expired" });
+    await pool.query("UPDATE users SET login_token_hash=NULL, login_expires_at=NULL WHERE id=$1", [u.id]);
+    // SSO satisfies the second factor for this hop (the consumer already authenticated them).
+    audit.record(req, "user.login", { actor: { ...u, name: u.name } });
+    return res.json({ token: tokenFor(u), user: publicUser(u) });
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+};
+
+module.exports = { bootstrap, status, login, me, updateProfile, changePassword, forgot, resetPassword, start2fa, enable2fa, disable2fa, sso };

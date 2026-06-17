@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import { Mail, Lock, User, Building2, ArrowRight, Loader2, ShieldCheck } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
@@ -8,16 +8,15 @@ import Brand from "../components/Brand";
 import ThemeToggle from "../components/ThemeToggle";
 
 export default function Login() {
-  const { login, bootstrap, user } = useAuth();
-  const navigate = useNavigate();
+  const { login, bootstrap } = useAuth();
   const [mode, setMode] = useState(null); // 'login' | 'bootstrap' | null(loading)
   const [busy, setBusy] = useState(false);
   const [mfa, setMfa] = useState(false); // 2FA code step
   const [code, setCode] = useState("");
   const [form, setForm] = useState({ org_name: "", name: "", email: "", password: "" });
 
-  useEffect(() => { if (user) navigate("/", { replace: true }); }, [user, navigate]);
-
+  // Note: once `user` is set, the PublicOnly route wrapper redirects to the
+  // intended page (or the dashboard) — Login doesn't navigate itself.
   useEffect(() => {
     api("auth/status")
       .then((s) => setMode(s.initialised ? "login" : "bootstrap"))
@@ -37,7 +36,7 @@ export default function Login() {
         const res = await login(form.email, form.password, mfa ? code : undefined);
         if (res.mfa_required) { setMfa(true); setBusy(false); return; } // ask for the 2FA code
       }
-      navigate("/", { replace: true });
+      // Success: `user` is now set; the PublicOnly wrapper handles the redirect.
     } catch (err) {
       toast.error(err.message);
     } finally {

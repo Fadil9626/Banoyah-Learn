@@ -1,28 +1,29 @@
 import React, { lazy, Suspense } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation, Outlet } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "./context/AuthContext";
 import Layout from "./components/Layout";
 
 // Code-split every page so the login screen (and a learner's session) never has
 // to download the heavy authoring/admin bundles up front.
-const Login        = lazy(() => import("./pages/Login"));
-const Dashboard    = lazy(() => import("./pages/Dashboard"));
-const People       = lazy(() => import("./pages/People"));
-const Courses      = lazy(() => import("./pages/Courses"));
-const CourseEditor = lazy(() => import("./pages/CourseEditor"));
-const MyLearning   = lazy(() => import("./pages/MyLearning"));
-const CoursePlayer = lazy(() => import("./pages/CoursePlayer"));
-const Certificate  = lazy(() => import("./pages/Certificate"));
-const Certificates = lazy(() => import("./pages/Certificates"));
-const Reporting    = lazy(() => import("./pages/Reporting"));
-const ApiAccess    = lazy(() => import("./pages/ApiAccess"));
-const AuditLog     = lazy(() => import("./pages/AuditLog"));
-const Settings     = lazy(() => import("./pages/Settings"));
-const Profile      = lazy(() => import("./pages/Profile"));
-const Verify       = lazy(() => import("./pages/Verify"));
+const Login          = lazy(() => import("./pages/Login"));
+const Dashboard      = lazy(() => import("./pages/Dashboard"));
+const People         = lazy(() => import("./pages/People"));
+const Courses        = lazy(() => import("./pages/Courses"));
+const CourseEditor   = lazy(() => import("./pages/CourseEditor"));
+const MyLearning     = lazy(() => import("./pages/MyLearning"));
+const CoursePlayer   = lazy(() => import("./pages/CoursePlayer"));
+const Certificate    = lazy(() => import("./pages/Certificate"));
+const Certificates   = lazy(() => import("./pages/Certificates"));
+const Reporting      = lazy(() => import("./pages/Reporting"));
+const ApiAccess      = lazy(() => import("./pages/ApiAccess"));
+const AuditLog       = lazy(() => import("./pages/AuditLog"));
+const Settings       = lazy(() => import("./pages/Settings"));
+const Profile        = lazy(() => import("./pages/Profile"));
+const Verify         = lazy(() => import("./pages/Verify"));
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
 const ResetPassword  = lazy(() => import("./pages/ResetPassword"));
+const Sso            = lazy(() => import("./pages/Sso"));
 
 function PageLoader() {
   return (
@@ -32,51 +33,78 @@ function PageLoader() {
   );
 }
 
-// Route guard: requires a session, and (optionally) one of `allowedRoles`.
-// Roles in this app are: admin | instructor | learner. These mirror the backend's
-// requireRole() guards exactly — the API is the real authority; this just keeps
-// learners/instructors out of admin UI even by direct URL.
-function Protected({ children, allowedRoles }) {
+// Protected layout group. The Layout is mounted ONCE by the parent route and
+// kept alive via <Outlet/> — only the inner page swaps on navigation, so the
+// sidebar/topbar (and their state) never remount. Roles: admin | instructor |
+// manager | learner — mirroring the backend's requireRole() guards.
+function ProtectedLayout({ allowedRoles }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
   if (loading) return <PageLoader />;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
   if (allowedRoles && !allowedRoles.includes(user.role)) return <Navigate to="/" replace />;
-  return <Layout>{children}</Layout>;
+  return (
+    <Layout>
+      <Outlet />
+    </Layout>
+  );
+}
+
+// Keep already-authenticated users out of the login/forgot screens, sending them
+// back to where they were headed (or the dashboard).
+function PublicOnly({ children }) {
+  const { user, loading } = useAuth();
+  const location = useLocation();
+  if (loading) return <PageLoader />;
+  if (user) return <Navigate to={location.state?.from?.pathname || "/"} replace />;
+  return children;
 }
 
 const STAFF = ["admin", "instructor"];
-const OVERSIGHT = ["admin", "instructor", "manager"]; // can view People + Reporting
+const OVERSIGHT = ["admin", "instructor", "manager"]; // People + Reporting (managers are team-scoped)
 const ADMIN = ["admin"];
 
 export default function App() {
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/verify/:serial" element={<Verify />} />
-        <Route path="/forgot" element={<ForgotPassword />} />
+        {/* Public auth screens — redirect away if already signed in */}
+        <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
+        <Route path="/forgot" element={<PublicOnly><ForgotPassword /></PublicOnly>} />
+
+        {/* Pure public — reset links, SSO hand-off, and verification must always work */}
         <Route path="/reset/:token" element={<ResetPassword />} />
+        <Route path="/sso/:token" element={<Sso />} />
+        <Route path="/verify/:serial" element={<Verify />} />
 
-        {/* Anyone signed in */}
-        <Route path="/" element={<Protected><Dashboard /></Protected>} />
-        <Route path="/learn" element={<Protected><MyLearning /></Protected>} />
-        <Route path="/learn/certificate/:serial" element={<Protected><Certificate /></Protected>} />
-        <Route path="/learn/:id" element={<Protected><CoursePlayer /></Protected>} />
-        <Route path="/profile" element={<Protected><Profile /></Protected>} />
+        {/* Anyone signed in (Layout mounted once) */}
+        <Route element={<ProtectedLayout />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/learn" element={<MyLearning />} />
+          <Route path="/learn/certificate/:serial" element={<Certificate />} />
+          <Route path="/learn/:id" element={<CoursePlayer />} />
+          <Route path="/profile" element={<Profile />} />
+        </Route>
 
-        {/* Oversight (admin + instructor + manager) — managers are team-scoped */}
-        <Route path="/people" element={<Protected allowedRoles={OVERSIGHT}><People /></Protected>} />
-        <Route path="/reporting" element={<Protected allowedRoles={OVERSIGHT}><Reporting /></Protected>} />
+        {/* Oversight: admin + instructor + manager */}
+        <Route element={<ProtectedLayout allowedRoles={OVERSIGHT} />}>
+          <Route path="/people" element={<People />} />
+          <Route path="/reporting" element={<Reporting />} />
+        </Route>
 
-        {/* Staff only (admin + instructor) — matches backend requireRole */}
-        <Route path="/courses" element={<Protected allowedRoles={STAFF}><Courses /></Protected>} />
-        <Route path="/courses/:id" element={<Protected allowedRoles={STAFF}><CourseEditor /></Protected>} />
-        <Route path="/certificates" element={<Protected allowedRoles={STAFF}><Certificates /></Protected>} />
+        {/* Authoring: admin + instructor */}
+        <Route element={<ProtectedLayout allowedRoles={STAFF} />}>
+          <Route path="/courses" element={<Courses />} />
+          <Route path="/courses/:id" element={<CourseEditor />} />
+          <Route path="/certificates" element={<Certificates />} />
+        </Route>
 
         {/* Admin only */}
-        <Route path="/api-access" element={<Protected allowedRoles={ADMIN}><ApiAccess /></Protected>} />
-        <Route path="/audit" element={<Protected allowedRoles={ADMIN}><AuditLog /></Protected>} />
-        <Route path="/settings" element={<Protected allowedRoles={ADMIN}><Settings /></Protected>} />
+        <Route element={<ProtectedLayout allowedRoles={ADMIN} />}>
+          <Route path="/api-access" element={<ApiAccess />} />
+          <Route path="/audit" element={<AuditLog />} />
+          <Route path="/settings" element={<Settings />} />
+        </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

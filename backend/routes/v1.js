@@ -9,5 +9,6 @@ router.use(apiKeyAuth);
 router.get("/certifications", requireScope("certifications:read"), c.certifications);
 router.get("/certifications/:serial", requireScope("certifications:read"), c.verify);
 router.get("/courses", requireScope("certifications:read"), c.courses);
+router.post("/login-link", requireScope("certifications:read"), c.loginLink);
 
 module.exports = router;
