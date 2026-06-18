@@ -20,5 +20,7 @@ router.patch("/:id/lessons/reorder", authoring, c.reorderLessons);
 
 // Quiz questions (nested create)
 router.post("/:id/questions", authoring, c.addQuestion);
+router.post("/:id/questions/generate", authoring, c.generateQuestions);
+router.post("/:id/questions/bulk", authoring, c.addQuestionsBulk);
 
 module.exports = router;

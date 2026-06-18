@@ -1,5 +1,7 @@
 const pool = require("../config/db");
 const audit = require("../lib/audit");
+const ai = require("../lib/ai");
+const media = require("../lib/media");
 
 // Load a course that belongs to the caller's org, or null.
 async function ownedCourse(orgId, courseId) {
@@ -218,8 +220,77 @@ const clampPct = (v, dflt) => { const n = parseInt(v, 10); return Number.isFinit
 const monthsOrNull = (v) => { if (v === null || v === undefined || v === "") return null; const n = parseInt(v, 10); return Number.isFinite(n) && n > 0 ? n : null; };
 const nonNegInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) && n > 0 ? n : 0; };
 
+// ── POST /api/courses/:id/questions/generate ─────────────────────────────────
+// Draft quiz questions from the course's lessons with AI. Returns the questions
+// for review — nothing is saved until the instructor confirms via /questions/bulk.
+const generateQuestions = async (req, res) => {
+  try {
+    const course = await ownedCourse(req.user.org_id, req.params.id);
+    if (!course) return res.status(404).json({ message: "Course not found" });
+
+    const cfg = await ai.config(req.user.org_id);
+    if (!ai.isConfigured(cfg))
+      return res.status(400).json({ message: "Add an AI API key under Settings → AI to generate questions." });
+
+    const lessons = (await pool.query(
+      "SELECT title, type, body, media_url FROM lessons WHERE course_id=$1 ORDER BY sort, id", [course.id]
+    )).rows;
+    if (!lessons.length)
+      return res.status(400).json({ message: "Add at least one lesson before generating questions." });
+
+    // Pull text out of PDF lessons so the AI can read attached documents too.
+    for (const l of lessons) {
+      if (l.type === "pdf" && l.media_url) {
+        try {
+          const id = String(l.media_url).split("/").pop();
+          const pdfText = await media.extractPdfText(id, req.user.org_id);
+          if (pdfText) l.body = [l.body, pdfText].filter(Boolean).join("\n\n");
+        } catch { /* unreadable/scanned PDF — skip, don't fail the whole request */ }
+      }
+    }
+
+    const hasText = lessons.some((l) => (l.body || "").trim());
+    if (!hasText)
+      return res.status(400).json({ message: "No readable text found in your lessons (text or PDF). Add lesson text, or attach a text-based PDF." });
+
+    const { questions } = await ai.generateQuestions(cfg, { course, lessons, count: req.body.count });
+    audit.record(req, "course.quiz_generate", { target: course.title, details: { count: questions.length } });
+    return res.json({ questions, model: cfg.model });
+  } catch (e) { return res.status(e.status || 500).json({ message: e.message }); }
+};
+
+// ── POST /api/courses/:id/questions/bulk ─────────────────────────────────────
+// Append a reviewed batch of questions to the course quiz.
+const addQuestionsBulk = async (req, res) => {
+  const input = Array.isArray(req.body.questions) ? req.body.questions : [];
+  const clean = [];
+  for (const q of input) {
+    const opts = Array.isArray(q.options) ? q.options.map((o) => String(o)).filter((o) => o.trim()) : [];
+    const prompt = String(q.prompt || "").trim();
+    if (!prompt || opts.length < 2) continue;
+    const ci = Math.min(Math.max(0, parseInt(q.correct_index, 10) || 0), opts.length - 1);
+    clean.push({ prompt, options: opts, correct_index: ci });
+  }
+  if (!clean.length) return res.status(400).json({ message: "No valid questions to add" });
+  try {
+    if (!(await ownedCourse(req.user.org_id, req.params.id))) return res.status(404).json({ message: "Course not found" });
+    let sort = await nextSort("quiz_questions", req.params.id);
+    const out = [];
+    for (const q of clean) {
+      const { rows } = await pool.query(
+        `INSERT INTO quiz_questions (course_id, sort, prompt, options, correct_index) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+        [req.params.id, sort++, q.prompt, JSON.stringify(q.options), q.correct_index]
+      );
+      out.push(rows[0]);
+    }
+    await touch(req.params.id);
+    return res.status(201).json({ added: out.length, questions: out });
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+};
+
 module.exports = {
   listCourses, getCourse, createCourse, updateCourse, deleteCourse, setStatus,
   addLesson, updateLesson, deleteLesson, reorderLessons,
   addQuestion, updateQuestion, deleteQuestion,
+  generateQuestions, addQuestionsBulk,
 };

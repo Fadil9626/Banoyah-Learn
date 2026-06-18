@@ -5,7 +5,7 @@
 const crypto = require("crypto");
 const pool = require("../config/db");
 
-const EVENTS = ["certification.completed", "certification.expired", "assignment.overdue"];
+const EVENTS = ["certification.completed", "certification.revoked", "certification.expired", "assignment.overdue"];
 
 const sign = (secret, body) => crypto.createHmac("sha256", secret).update(body).digest("hex");
 const newSecret = () => "whsec_" + crypto.randomBytes(24).toString("hex");

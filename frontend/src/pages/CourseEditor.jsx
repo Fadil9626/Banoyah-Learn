@@ -4,7 +4,7 @@ import { toast } from "react-hot-toast";
 import {
   ArrowLeft, Loader2, Save, Trash2, Plus, X, FileText, Video, File,
   ChevronUp, ChevronDown, Check, Globe, PencilLine, HelpCircle, Upload,
-  ClipboardCheck, UserPlus, Calendar,
+  ClipboardCheck, UserPlus, Calendar, Sparkles,
 } from "lucide-react";
 import api, { getToken } from "../lib/api";
 import { StatusChip } from "./Courses";
@@ -332,6 +332,7 @@ function LessonModal({ courseId, lesson, onClose, onSaved }) {
 // ── Quiz ──────────────────────────────────────────────────────────────────────
 function QuizTab({ course, reload }) {
   const [editing, setEditing] = useState(null);
+  const [generating, setGenerating] = useState(false);
   const qs = course.questions;
 
   const remove = async (q) => {
@@ -342,7 +343,13 @@ function QuizTab({ course, reload }) {
 
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted">Learners must score at least <strong className="text-content">{course.pass_mark}%</strong> to pass and earn a certificate.</p>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-sm text-muted">Learners must score at least <strong className="text-content">{course.pass_mark}%</strong> to pass and earn a certificate.</p>
+        <button onClick={() => setGenerating(true)} className="btn-ghost flex-shrink-0 whitespace-nowrap"
+          style={{ color: "rgb(var(--brand))" }}>
+          <Sparkles size={15} /> Generate with AI
+        </button>
+      </div>
       {qs.length === 0 && <div className="card p-10 text-center text-muted">No questions yet — add the first one below.</div>}
       {qs.map((q, i) => (
         <div key={q.id} className="card p-4">
@@ -369,6 +376,129 @@ function QuizTab({ course, reload }) {
 
       {editing && <QuestionModal courseId={course.id} question={editing}
         onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
+      {generating && <GenerateModal courseId={course.id}
+        onClose={() => setGenerating(false)} onSaved={() => { setGenerating(false); reload(); }} />}
+    </div>
+  );
+}
+
+// AI question generation: draft → review/edit → add the batch.
+function GenerateModal({ courseId, onClose, onSaved }) {
+  const [count, setCount] = useState(5);
+  const [stage, setStage] = useState("setup"); // setup | review
+  const [loading, setLoading] = useState(false);
+  const [drafts, setDrafts] = useState([]);
+
+  const generate = async () => {
+    setLoading(true);
+    try {
+      const { questions } = await api(`courses/${courseId}/questions/generate`, {
+        method: "POST", body: JSON.stringify({ count }),
+      });
+      setDrafts(questions.map((q) => ({ ...q, keep: true })));
+      setStage("review");
+    } catch (e) { toast.error(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const patch = (i, fields) => setDrafts((ds) => ds.map((d, idx) => (idx === i ? { ...d, ...fields } : d)));
+  const setOpt = (i, oi, v) => setDrafts((ds) => ds.map((d, idx) => idx === i ? { ...d, options: d.options.map((o, j) => (j === oi ? v : o)) } : d));
+
+  const save = async () => {
+    const chosen = drafts.filter((d) => d.keep).map(({ prompt, options, correct_index }) => ({
+      prompt, options: options.map((o) => o.trim()).filter(Boolean), correct_index,
+    })).filter((d) => d.prompt.trim() && d.options.length >= 2);
+    if (!chosen.length) return toast.error("Select at least one valid question");
+    setLoading(true);
+    try {
+      const { added } = await api(`courses/${courseId}/questions/bulk`, {
+        method: "POST", body: JSON.stringify({ questions: chosen }),
+      });
+      toast.success(`${added} question${added === 1 ? "" : "s"} added`);
+      onSaved();
+    } catch (e) { toast.error(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const keepCount = drafts.filter((d) => d.keep).length;
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={() => !loading && onClose()}>
+      <div className="card w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-3 p-5 border-b border-line">
+          <div className="w-9 h-9 rounded-xl grid place-items-center flex-shrink-0"
+            style={{ backgroundColor: "rgb(var(--brand) / 0.12)", color: "rgb(var(--brand))" }}>
+            <Sparkles size={18} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-bold text-content text-lg leading-tight">Generate quiz with AI</h3>
+            <p className="text-xs text-muted">Drafts from your lesson content — review before adding. Nothing is saved until you confirm.</p>
+          </div>
+          <button onClick={onClose} disabled={loading} className="p-1.5 rounded-lg text-muted hover:text-content hover:bg-surface-2"><X size={16} /></button>
+        </div>
+
+        {stage === "setup" ? (
+          <div className="p-6">
+            <label className="label">How many questions?</label>
+            <div className="flex items-center gap-2 mt-1">
+              {[3, 5, 8, 10].map((n) => (
+                <button key={n} onClick={() => setCount(n)}
+                  className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-colors ${
+                    count === n ? "border-brand text-brand bg-brand/10" : "border-line text-muted hover:text-content"}`}>
+                  {n}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted mt-4">The AI reads this course's lessons — including the text inside attached PDFs — and drafts multiple-choice questions grounded in that material. You'll be able to edit or drop any of them.</p>
+            <div className="flex justify-end gap-2 mt-6">
+              <button className="btn-ghost" onClick={onClose} disabled={loading}>Cancel</button>
+              <button onClick={generate} disabled={loading} className="btn-brand">
+                {loading ? <><Loader2 size={16} className="animate-spin" /> Generating…</> : <><Sparkles size={16} /> Generate</>}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex-1 overflow-y-auto p-5 space-y-3">
+              {drafts.map((d, i) => (
+                <div key={i} className={`card p-4 transition-opacity ${d.keep ? "" : "opacity-50"}`}>
+                  <div className="flex items-start gap-2">
+                    <button onClick={() => patch(i, { keep: !d.keep })} title={d.keep ? "Exclude" : "Include"}
+                      className={`mt-0.5 w-5 h-5 rounded border-2 grid place-items-center flex-shrink-0 ${d.keep ? "border-ok bg-ok text-white" : "border-line text-transparent"}`}>
+                      <Check size={13} />
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <textarea className="input text-sm font-semibold min-h-[44px] resize-y" value={d.prompt}
+                        onChange={(e) => patch(i, { prompt: e.target.value })} />
+                      <div className="mt-2 space-y-1.5">
+                        {d.options.map((o, oi) => (
+                          <div key={oi} className="flex items-center gap-2">
+                            <button onClick={() => patch(i, { correct_index: oi })} title="Mark correct"
+                              className={`w-5 h-5 rounded-full border-2 grid place-items-center flex-shrink-0 ${
+                                d.correct_index === oi ? "border-ok bg-ok text-white" : "border-line text-transparent hover:border-faint"}`}>
+                              <Check size={12} />
+                            </button>
+                            <input className="input py-1.5 text-sm" value={o} onChange={(e) => setOpt(i, oi, e.target.value)} />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between gap-2 p-4 border-t border-line">
+              <span className="text-xs text-muted">{keepCount} of {drafts.length} selected · tap the green circle to set the correct answer</span>
+              <div className="flex gap-2">
+                <button className="btn-ghost" onClick={() => setStage("setup")} disabled={loading}>Back</button>
+                <button onClick={save} disabled={loading || !keepCount} className="btn-brand">
+                  {loading ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} Add {keepCount} question{keepCount === 1 ? "" : "s"}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

@@ -2,6 +2,7 @@ const pool = require("../config/db");
 const mailer = require("../lib/mailer");
 const scheduler = require("../lib/scheduler");
 const audit = require("../lib/audit");
+const ai = require("../lib/ai");
 
 const REMINDER_DEFAULTS = { reminder_enabled: "true", reminder_days: "30,7,1", reminder_interval_min: "720" };
 
@@ -21,6 +22,7 @@ const get = async (req, res) => {
   try {
     const s = await readSettings(req.user.org_id);
     const org = (await pool.query("SELECT name FROM organizations WHERE id=$1", [req.user.org_id])).rows[0];
+    const aiCfg = await ai.config(req.user.org_id);
     return res.json({
       branding: {
         org_name:     org?.name || "",
@@ -41,6 +43,14 @@ const get = async (req, res) => {
         reminder_enabled:      (s.reminder_enabled ?? REMINDER_DEFAULTS.reminder_enabled) === "true",
         reminder_days:         s.reminder_days || REMINDER_DEFAULTS.reminder_days,
         reminder_interval_min: s.reminder_interval_min || REMINDER_DEFAULTS.reminder_interval_min,
+      },
+      ai: {
+        ai_provider: aiCfg.provider,
+        ai_model:    aiCfg.model,
+        ai_base_url: aiCfg.baseUrl,
+        ai_key_set:  ai.isConfigured(aiCfg),
+        ai_key_env:  aiCfg.keyEnv, // provider/key set via .env (can't be cleared from the UI)
+        providers:   ai.PROVIDERS_PUBLIC,
       },
       runtime: scheduler.getState(),
     });
@@ -134,4 +144,24 @@ const updateBranding = async (req, res) => {
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 
-module.exports = { get, updateMail, updateReminders, testMail, runReminders, updateBranding };
+// ── PUT /api/settings/ai ─────────────────────────────────────────────────────
+// Store the Anthropic API key (only when provided) and model for AI quiz authoring.
+const updateAi = async (req, res) => {
+  const org = req.user.org_id;
+  try {
+    if (typeof req.body.ai_provider === "string" && req.body.ai_provider.trim())
+      await setSetting(org, "ai_provider", req.body.ai_provider.trim());
+    if (typeof req.body.ai_api_key === "string" && req.body.ai_api_key.trim())
+      await setSetting(org, "ai_api_key", req.body.ai_api_key.trim());
+    if (req.body.ai_clear_key === true)
+      await pool.query("DELETE FROM org_settings WHERE org_id=$1 AND key='ai_api_key'", [org]);
+    if (typeof req.body.ai_model === "string")
+      await setSetting(org, "ai_model", req.body.ai_model.trim());
+    if (typeof req.body.ai_base_url === "string")
+      await setSetting(org, "ai_base_url", req.body.ai_base_url.trim());
+    audit.record(req, "settings.ai");
+    return get(req, res);
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+};
+
+module.exports = { get, updateMail, updateReminders, testMail, runReminders, updateBranding, updateAi };

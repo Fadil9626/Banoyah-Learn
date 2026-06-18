@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { toast } from "react-hot-toast";
-import { Mail, BellRing, Loader2, Check, Send, Play, Clock, Building2, Upload, ImageOff, X } from "lucide-react";
+import { Mail, BellRing, Loader2, Check, Send, Play, Clock, Building2, Upload, ImageOff, X, Sparkles } from "lucide-react";
 import api from "../lib/api";
 import PageHeader from "../components/PageHeader";
 
@@ -8,6 +8,7 @@ const TABS = [
   { key: "org", label: "Organization", icon: Building2 },
   { key: "email", label: "Email", icon: Mail },
   { key: "reminders", label: "Reminders", icon: BellRing },
+  { key: "ai", label: "AI", icon: Sparkles },
 ];
 
 const ACCENTS = ["#4F46E5", "#7C3AED", "#2563EB", "#059669", "#D97706", "#E11D48", "#0891B2"];
@@ -35,6 +36,7 @@ export default function Settings() {
       {!data ? <div className="py-16 grid place-items-center text-muted"><Loader2 className="animate-spin" /></div>
         : tab === "org" ? <BrandingTab data={data.branding} reload={load} />
         : tab === "email" ? <EmailTab data={data.mail} reload={load} />
+        : tab === "ai" ? <AiTab data={data.ai} reload={load} />
         : <RemindersTab data={data.reminders} runtime={data.runtime} reload={load} />}
     </div>
   );
@@ -167,6 +169,96 @@ function RemindersTab({ data, runtime, reload }) {
 
 function Field({ label, hint, children }) {
   return <div><label className="label">{label}</label>{children}{hint && <p className="text-[11px] text-faint mt-1">{hint}</p>}</div>;
+}
+
+function AiTab({ data, reload }) {
+  const providers = data.providers || [];
+  const [provider, setProvider] = useState(data.ai_provider || "gemini");
+  const [key, setKey] = useState("");
+  const [model, setModel] = useState(data.ai_model || "");
+  const [baseUrl, setBaseUrl] = useState(data.ai_base_url || "http://localhost:11434");
+  const [saving, setSaving] = useState(false);
+
+  const meta = providers.find((p) => p.value === provider) || {};
+  const lockedToEnv = data.ai_key_env; // provider/key forced via .env
+
+  // When switching provider, default the model to that provider's recommended one.
+  const pickProvider = (v) => {
+    setProvider(v);
+    const m = providers.find((p) => p.value === v);
+    setModel(m?.defaultModel || "");
+    setKey("");
+  };
+
+  const save = async (extra = {}) => {
+    setSaving(true);
+    try {
+      const body = { ai_provider: provider, ai_model: model || meta.defaultModel || "", ai_base_url: baseUrl, ...extra };
+      if (key.trim()) body.ai_api_key = key.trim();
+      await api("settings/ai", { method: "PUT", body: JSON.stringify(body) });
+      setKey("");
+      toast.success("AI settings saved");
+      reload();
+    } catch (e) { toast.error(e.message); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="card p-6 space-y-5 max-w-2xl">
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-10 rounded-xl grid place-items-center flex-shrink-0" style={{ backgroundColor: "rgb(var(--brand) / 0.12)", color: "rgb(var(--brand))" }}>
+          <Sparkles size={20} />
+        </div>
+        <div>
+          <h3 className="font-bold text-content">AI quiz generation</h3>
+          <p className="text-sm text-muted">Auto-draft quiz questions from a course's lessons. Pick a free provider or a paid one.</p>
+        </div>
+      </div>
+
+      <div className={`flex items-center gap-2 text-sm rounded-xl px-3.5 py-2.5 border ${data.ai_key_set ? "border-ok/30 bg-ok/10 text-ok" : "border-line bg-surface-2/50 text-muted"}`}>
+        {data.ai_key_set
+          ? <><Check size={16} /> Ready{data.ai_key_env ? " (configured via server environment)" : ""} — generation is enabled.</>
+          : <>Not configured yet — generation is disabled.</>}
+      </div>
+
+      <Field label="Provider">
+        <select className="input" value={provider} onChange={(e) => pickProvider(e.target.value)} disabled={lockedToEnv}>
+          {providers.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+        </select>
+      </Field>
+
+      {meta.needsKey ? (
+        <Field label="API key" hint={lockedToEnv ? "A key is set via the server environment and takes precedence." : meta.keyHint}>
+          <input className="input font-mono" type="password" autoComplete="off"
+            placeholder={data.ai_key_set ? "•••••••••••••• (leave blank to keep)" : "Paste your API key…"}
+            value={key} onChange={(e) => setKey(e.target.value)} disabled={lockedToEnv} />
+        </Field>
+      ) : (
+        <Field label="Ollama server URL" hint={meta.keyHint}>
+          <input className="input font-mono" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="http://localhost:11434" />
+        </Field>
+      )}
+
+      <Field label="Model" hint={`Suggestions for ${meta.label || provider}. You can type any model the provider supports.`}>
+        <input className="input" list="ai-models" value={model} onChange={(e) => setModel(e.target.value)} placeholder={meta.defaultModel} />
+        <datalist id="ai-models">
+          {(meta.models || []).map((m) => <option key={m} value={m} />)}
+        </datalist>
+      </Field>
+
+      <div className="flex items-center gap-2">
+        <button onClick={() => save()} disabled={saving} className="btn-brand">
+          {saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Save AI settings
+        </button>
+        {data.ai_key_set && !data.ai_key_env && meta.needsKey && (
+          <button onClick={() => { if (confirm("Remove the stored API key? Generation will be disabled.")) save({ ai_clear_key: true }); }}
+            disabled={saving} className="btn-ghost" style={{ color: "rgb(var(--danger))" }}>
+            <X size={16} /> Remove key
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function BrandingTab({ data, reload }) {

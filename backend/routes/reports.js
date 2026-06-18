@@ -10,5 +10,7 @@ router.get("/expiring", c.expiring);
 router.get("/assignments", c.assignmentCompliance);
 router.get("/register", c.register);
 router.get("/certifications.csv", c.exportCsv);
+router.get("/certificates/:serial/pdf", c.certificatePdf);
+router.delete("/certificates/:serial", requireRole("admin"), c.revoke);
 
 module.exports = router;

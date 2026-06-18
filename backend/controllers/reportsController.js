@@ -1,4 +1,7 @@
 const pool = require("../config/db");
+const { certificatePDF } = require("../lib/pdf");
+const audit = require("../lib/audit");
+const webhooks = require("../lib/webhooks");
 
 const DAY = 86_400_000;
 const daysLeft = (until) => Math.ceil((new Date(until).getTime() - Date.now()) / DAY);
@@ -209,4 +212,61 @@ const exportCsv = async (req, res) => {
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 
-module.exports = { summary, expiring, assignmentCompliance, register, exportCsv };
+// ── GET /api/reports/certificates/:serial/pdf ────────────────────────────────
+// Admin/instructor/manager view of ANY certificate in their org (team-scoped
+// for managers). Unlike the learner endpoint this is not bound to req.user.id.
+const certificatePdf = async (req, res) => {
+  const org = req.user.org_id;
+  try {
+    const ids = await teamIds(req);
+    const params = [req.params.serial, org];
+    let filter = "";
+    if (ids) { params.push(ids); filter = ` AND cert.user_id = ANY($${params.length})`; }
+    const { rows } = await pool.query(
+      `SELECT cert.*, c.title AS course_title, u.name AS learner_name, o.name AS org_name
+       FROM certificates cert
+       JOIN courses c ON c.id=cert.course_id
+       JOIN users u ON u.id=cert.user_id
+       JOIN organizations o ON o.id=cert.org_id
+       WHERE cert.serial=$1 AND cert.org_id=$2${filter}`,
+      params
+    );
+    if (!rows.length) return res.status(404).json({ message: "Certificate not found" });
+    const { rows: br } = await pool.query(
+      "SELECT key, value FROM org_settings WHERE org_id=$1 AND key IN ('brand_accent','brand_logo')", [org]
+    );
+    const m = Object.fromEntries(br.map((r) => [r.key, r.value]));
+    const safe = String(rows[0].course_title).replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+    const verifyUrl = `${req.protocol}://${req.get("host")}/verify/${rows[0].serial}`;
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="certificate-${safe}-${rows[0].serial}.pdf"`);
+    certificatePDF({ ...rows[0], brand_accent: m.brand_accent || "#4F46E5", brand_logo: m.brand_logo || "", verify_url: verifyUrl }, res);
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+};
+
+// ── DELETE /api/reports/certificates/:serial ─────────────────────────────────
+// Revoke (delete) a certificate. Admin-only — destructive and irreversible.
+// Records an audit entry and fires a `certification.revoked` webhook.
+const revoke = async (req, res) => {
+  const org = req.user.org_id;
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM certificates cert
+       USING users u, courses c
+       WHERE cert.serial=$1 AND cert.org_id=$2 AND u.id=cert.user_id AND c.id=cert.course_id
+       RETURNING cert.serial, cert.score, cert.issued_at, cert.certified_until,
+                 u.name AS learner, u.email, u.external_id, c.id AS course_id, c.title AS course`,
+      [req.params.serial, org]
+    );
+    if (!rows.length) return res.status(404).json({ message: "Certificate not found" });
+    const r = rows[0];
+    audit.record(req, "certification.revoke", { target: r.serial, details: { learner: r.email, course: r.course } });
+    webhooks.emit(org, "certification.revoked", {
+      serial: r.serial, email: r.email, external_id: r.external_id,
+      course_id: r.course_id, course: r.course, learner: r.learner,
+    });
+    return res.json({ revoked: true, serial: r.serial });
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+};
+
+module.exports = { summary, expiring, assignmentCompliance, register, exportCsv, certificatePdf, revoke };
