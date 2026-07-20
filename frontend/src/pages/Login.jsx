@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import api from "../lib/api";
 import Brand from "../components/Brand";
 import ThemeToggle from "../components/ThemeToggle";
+import PoweredBy from "../components/PoweredBy";
 
 export default function Login() {
   const { login, bootstrap } = useAuth();
@@ -118,6 +119,8 @@ export default function Login() {
               </button>
               {mfa && <button type="button" onClick={() => { setMfa(false); setCode(""); }} className="w-full text-xs text-muted hover:text-content">← Back</button>}
             </form>
+
+            <PoweredBy className="mt-10 lg:hidden" />
           </div>
         </div>
       </div>

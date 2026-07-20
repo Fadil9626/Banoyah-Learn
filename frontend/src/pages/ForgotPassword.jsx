@@ -5,6 +5,7 @@ import { Mail, ArrowLeft, Loader2, MailCheck } from "lucide-react";
 import api from "../lib/api";
 import Brand from "../components/Brand";
 import ThemeToggle from "../components/ThemeToggle";
+import PoweredBy from "../components/PoweredBy";
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
@@ -55,6 +56,7 @@ export default function ForgotPassword() {
               </form>
             </>
           )}
+          <PoweredBy className="mt-10" />
         </div>
       </div>
     </div>

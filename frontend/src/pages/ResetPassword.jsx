@@ -5,6 +5,7 @@ import { Lock, Loader2, CheckCircle2 } from "lucide-react";
 import api from "../lib/api";
 import Brand from "../components/Brand";
 import ThemeToggle from "../components/ThemeToggle";
+import PoweredBy from "../components/PoweredBy";
 
 export default function ResetPassword() {
   const { token } = useParams();
@@ -54,6 +55,7 @@ export default function ResetPassword() {
               </form>
             </>
           )}
+          <PoweredBy className="mt-10" />
         </div>
       </div>
     </div>
