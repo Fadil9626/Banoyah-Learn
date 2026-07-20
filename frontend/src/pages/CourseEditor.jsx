@@ -4,10 +4,11 @@ import { toast } from "react-hot-toast";
 import {
   ArrowLeft, Loader2, Save, Trash2, Plus, X, FileText, Video, File,
   ChevronUp, ChevronDown, Check, Globe, PencilLine, HelpCircle, Upload,
-  ClipboardCheck, UserPlus, Calendar, Sparkles, AlertTriangle,
+  ClipboardCheck, UserPlus, Calendar, Sparkles,
 } from "lucide-react";
 import api, { getToken } from "../lib/api";
 import { StatusChip } from "./Courses";
+import ConfirmDialog from "../components/ConfirmDialog";
 
 const TABS = [
   { key: "details", label: "Details", icon: PencilLine },
@@ -398,31 +399,6 @@ function QuizTab({ course, reload }) {
   );
 }
 
-// Reusable destructive-action confirm — replaces the browser's native confirm()
-// so deletes match the app's dark surface instead of a jarring OS dialog.
-function ConfirmDialog({ open, title, message, onConfirm, onCancel, busy }) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-[60] grid place-items-center p-4 bg-black/50 backdrop-blur-sm" onClick={busy ? undefined : onCancel}>
-      <div className="card w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
-        <div className="w-11 h-11 rounded-xl grid place-items-center mb-4"
-          style={{ backgroundColor: "rgb(var(--danger) / 0.12)", color: "rgb(var(--danger))" }}>
-          <AlertTriangle size={20} />
-        </div>
-        <h3 className="font-bold text-content text-lg">{title}</h3>
-        <p className="text-sm text-muted mt-1.5 leading-relaxed">{message}</p>
-        <div className="flex gap-3 pt-5">
-          <button type="button" className="btn-ghost flex-1" onClick={onCancel} disabled={busy}>Cancel</button>
-          <button type="button" className="btn-brand flex-1" onClick={onConfirm} disabled={busy}
-            style={{ backgroundImage: "none", backgroundColor: "rgb(var(--danger))" }}>
-            {busy ? <Loader2 size={16} className="animate-spin" /> : <><Trash2 size={16} /> Delete</>}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // AI question generation: draft → review/edit → add the batch.
 function GenerateModal({ courseId, onClose, onSaved }) {
   const [count, setCount] = useState(5);
@@ -676,7 +652,7 @@ function AssignmentsTab({ course }) {
 
       {assigning && <AssignModal courseId={course.id} onClose={() => setAssigning(false)} onDone={() => { setAssigning(false); load(); }} />}
 
-      <ConfirmDialog open={!!confirmDel} busy={busy}
+      <ConfirmDialog open={!!confirmDel} busy={busy} confirmLabel="Remove" icon={X}
         title="Remove assignment"
         message={confirmDel ? <>Remove <strong className="text-content">{confirmDel.name}</strong> from this course? Their progress on it will be discarded.</> : null}
         onConfirm={unassign} onCancel={() => setConfirmDel(null)} />

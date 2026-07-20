@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import api from "../lib/api";
 import PageHeader from "../components/PageHeader";
+import ConfirmDialog from "../components/ConfirmDialog";
 
 const EVENT_LABEL = {
   "certification.completed": "Certification completed",
@@ -17,19 +18,21 @@ export default function ApiAccess() {
   const [rows, setRows] = useState(null);
   const [creating, setCreating] = useState(false);
   const [newKey, setNewKey] = useState(null); // { name, key } shown once
+  const [confirm, setConfirm] = useState(null); // { kind: "revoke"|"delete", c }
+  const [busy, setBusy] = useState(false);
 
   const load = () => api("api-consumers").then(setRows).catch((e) => { toast.error(e.message); setRows([]); });
   useEffect(() => { load(); }, []);
 
-  const revoke = async (c) => {
-    if (!confirm(`Revoke "${c.name}"? Systems using this key will stop working immediately.`)) return;
-    try { await api(`api-consumers/${c.id}/revoke`, { method: "POST" }); toast.success("Key revoked"); load(); }
-    catch (e) { toast.error(e.message); }
-  };
-  const del = async (c) => {
-    if (!confirm(`Delete "${c.name}" permanently?`)) return;
-    try { await api(`api-consumers/${c.id}`, { method: "DELETE" }); toast.success("Deleted"); load(); }
-    catch (e) { toast.error(e.message); }
+  const runConfirm = async () => {
+    const { kind, c } = confirm;
+    setBusy(true);
+    try {
+      if (kind === "revoke") { await api(`api-consumers/${c.id}/revoke`, { method: "POST" }); toast.success("Key revoked"); }
+      else { await api(`api-consumers/${c.id}`, { method: "DELETE" }); toast.success("Deleted"); }
+      setConfirm(null); load();
+    } catch (e) { toast.error(e.message); }
+    finally { setBusy(false); }
   };
 
   return (
@@ -69,8 +72,8 @@ export default function ApiAccess() {
                   {c.is_active
                     ? <span className="chip" style={{ backgroundColor: "rgb(var(--ok) / 0.14)", color: "rgb(var(--ok))" }}>Active</span>
                     : <span className="chip" style={{ backgroundColor: "rgb(var(--danger) / 0.14)", color: "rgb(var(--danger))" }}>Revoked</span>}
-                  {c.is_active && <button onClick={() => revoke(c)} title="Revoke" className="text-faint hover:text-warn p-2"><Ban size={15} /></button>}
-                  <button onClick={() => del(c)} title="Delete" className="text-faint hover:text-danger p-2"><Trash2 size={15} /></button>
+                  {c.is_active && <button onClick={() => setConfirm({ kind: "revoke", c })} title="Revoke" className="text-faint hover:text-warn p-2"><Ban size={15} /></button>}
+                  <button onClick={() => setConfirm({ kind: "delete", c })} title="Delete" className="text-faint hover:text-danger p-2"><Trash2 size={15} /></button>
                 </div>
               ))}
             </div>
@@ -85,6 +88,15 @@ export default function ApiAccess() {
       {creating && <CreateModal onClose={() => setCreating(false)}
         onCreated={(c) => { setCreating(false); setNewKey(c); load(); }} />}
       {newKey && <RevealModal data={newKey} onClose={() => setNewKey(null)} />}
+
+      <ConfirmDialog open={!!confirm} busy={busy}
+        title={confirm?.kind === "revoke" ? "Revoke API key" : "Delete API key"}
+        confirmLabel={confirm?.kind === "revoke" ? "Revoke" : "Delete"}
+        icon={confirm?.kind === "revoke" ? Ban : Trash2}
+        message={confirm ? (confirm.kind === "revoke"
+          ? <>Revoke <strong className="text-content">“{confirm.c.name}”</strong>? Any system using this key will stop working immediately.</>
+          : <>Permanently delete <strong className="text-content">“{confirm.c.name}”</strong>? This can’t be undone.</>) : null}
+        onConfirm={runConfirm} onCancel={() => setConfirm(null)} />
     </div>
   );
 }
@@ -95,14 +107,17 @@ function Webhooks() {
   const [adding, setAdding] = useState(false);
   const [secret, setSecret] = useState(null);
   const [testing, setTesting] = useState(null);
+  const [confirmDel, setConfirmDel] = useState(null); // endpoint pending delete
+  const [busy, setBusy] = useState(false);
 
   const load = () => api("webhooks").then((d) => { setEps(d.endpoints); setEvents(d.available_events); }).catch((e) => { toast.error(e.message); setEps([]); });
   useEffect(() => { load(); }, []);
 
-  const del = async (ep) => {
-    if (!confirm("Delete this webhook endpoint?")) return;
-    try { await api(`webhooks/${ep.id}`, { method: "DELETE" }); toast.success("Deleted"); load(); }
+  const del = async () => {
+    setBusy(true);
+    try { await api(`webhooks/${confirmDel.id}`, { method: "DELETE" }); toast.success("Deleted"); setConfirmDel(null); load(); }
     catch (e) { toast.error(e.message); }
+    finally { setBusy(false); }
   };
   const test = async (ep) => {
     setTesting(ep.id);
@@ -139,7 +154,7 @@ function Webhooks() {
                   </span>
                 )}
                 <button onClick={() => test(ep)} disabled={testing === ep.id} title="Send test" className="text-faint hover:text-brand p-2">{testing === ep.id ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}</button>
-                <button onClick={() => del(ep)} title="Delete" className="text-faint hover:text-danger p-2"><Trash2 size={15} /></button>
+                <button onClick={() => setConfirmDel(ep)} title="Delete" className="text-faint hover:text-danger p-2"><Trash2 size={15} /></button>
               </div>
             ))}
           </div>
@@ -148,6 +163,11 @@ function Webhooks() {
 
       {adding && <AddWebhook events={events} onClose={() => setAdding(false)} onCreated={(d) => { setAdding(false); setSecret(d); load(); }} />}
       {secret && <SecretModal data={secret} onClose={() => setSecret(null)} />}
+
+      <ConfirmDialog open={!!confirmDel} busy={busy}
+        title="Delete webhook endpoint"
+        message={confirmDel ? <>Stop delivering events to <strong className="text-content break-all">{confirmDel.url}</strong>? This can’t be undone.</> : null}
+        onConfirm={del} onCancel={() => setConfirmDel(null)} />
     </div>
   );
 }

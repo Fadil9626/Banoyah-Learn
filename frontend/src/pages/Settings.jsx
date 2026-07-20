@@ -3,6 +3,7 @@ import { toast } from "react-hot-toast";
 import { Mail, BellRing, Loader2, Check, Send, Play, Clock, Building2, Upload, ImageOff, X, Sparkles } from "lucide-react";
 import api from "../lib/api";
 import PageHeader from "../components/PageHeader";
+import ConfirmDialog from "../components/ConfirmDialog";
 
 const TABS = [
   { key: "org", label: "Organization", icon: Building2 },
@@ -178,6 +179,7 @@ function AiTab({ data, reload }) {
   const [model, setModel] = useState(data.ai_model || "");
   const [baseUrl, setBaseUrl] = useState(data.ai_base_url || "http://localhost:11434");
   const [saving, setSaving] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
 
   const meta = providers.find((p) => p.value === provider) || {};
   const lockedToEnv = data.ai_key_env; // provider/key forced via .env
@@ -251,12 +253,18 @@ function AiTab({ data, reload }) {
           {saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Save AI settings
         </button>
         {data.ai_key_set && !data.ai_key_env && meta.needsKey && (
-          <button onClick={() => { if (confirm("Remove the stored API key? Generation will be disabled.")) save({ ai_clear_key: true }); }}
+          <button onClick={() => setConfirmClear(true)}
             disabled={saving} className="btn-ghost" style={{ color: "rgb(var(--danger))" }}>
             <X size={16} /> Remove key
           </button>
         )}
       </div>
+
+      <ConfirmDialog open={confirmClear} busy={saving} confirmLabel="Remove key" icon={X}
+        title="Remove API key"
+        message={<>Delete the stored API key? Quiz generation will be disabled until a new key is saved.</>}
+        onConfirm={async () => { await save({ ai_clear_key: true }); setConfirmClear(false); }}
+        onCancel={() => setConfirmClear(false)} />
     </div>
   );
 }
