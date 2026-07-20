@@ -32,16 +32,24 @@ export default function Dashboard() {
     : <StaffDash data={data} hi={hi} navigate={navigate} />;
 }
 
-function Stat({ icon: Icon, tint, value, label, sub, onClick }) {
+function Stat({ icon: Icon, tint, value, label, sub, onClick, progress }) {
   return (
     <button onClick={onClick} disabled={!onClick}
       className={`card p-5 text-left ${onClick ? "hover:border-brand/40 hover:shadow-glow transition" : ""}`}>
-      <div className="w-10 h-10 rounded-xl grid place-items-center mb-4" style={{ backgroundColor: `rgb(var(--${tint}) / 0.12)`, color: `rgb(var(--${tint}))` }}>
-        <Icon size={18} />
+      <div className="flex items-start justify-between">
+        <div className="w-10 h-10 rounded-xl grid place-items-center" style={{ backgroundColor: `rgb(var(--${tint}) / 0.12)`, color: `rgb(var(--${tint}))` }}>
+          <Icon size={18} />
+        </div>
+        {onClick && <ArrowRight size={15} className="text-faint mt-1" />}
       </div>
-      <p className="text-3xl font-black text-content tabular-nums">{value}</p>
+      <p className="text-3xl font-black text-content tabular-nums mt-4">{value}</p>
       <p className="text-xs font-medium text-muted mt-1">{label}</p>
       {sub && <p className="text-[11px] text-faint mt-0.5">{sub}</p>}
+      {progress != null && (
+        <div className="h-1.5 rounded-full bg-surface-2 overflow-hidden mt-3">
+          <div className="h-full rounded-full transition-all" style={{ width: `${Math.max(2, Math.min(100, progress))}%`, backgroundColor: `rgb(var(--${tint}))` }} />
+        </div>
+      )}
     </button>
   );
 }
@@ -74,7 +82,7 @@ function LearnerDash({ data, hi, navigate }) {
                 <div className="w-8 h-8 rounded-lg grid place-items-center text-brand-fg flex-shrink-0" style={{ backgroundImage: "linear-gradient(135deg, rgb(var(--brand)), rgb(var(--brand-2)))" }}><BookOpen size={15} /></div>
                 <span className="flex-1 text-sm font-semibold text-content truncate">{r.title}</span>
                 {r.due_date && (
-                  <span className={`chip ${r.overdue ? "" : ""}`} style={{ backgroundColor: r.overdue ? "rgb(var(--danger) / 0.14)" : "rgb(var(--muted) / 0.14)", color: r.overdue ? "rgb(var(--danger))" : "rgb(var(--muted))" }}>
+                  <span className="chip" style={{ backgroundColor: r.overdue ? "rgb(var(--danger) / 0.14)" : "rgb(var(--muted) / 0.14)", color: r.overdue ? "rgb(var(--danger))" : "rgb(var(--muted))" }}>
                     {r.overdue ? <AlertTriangle size={11} /> : <Calendar size={11} />}{r.overdue ? "Overdue" : new Date(r.due_date).toLocaleDateString()}
                   </span>
                 )}
@@ -93,13 +101,15 @@ function StaffDash({ data, hi, navigate }) {
   const t = data.totals;
   const certRate = t.people ? Math.round((t.certified_people / t.people) * 100) : 0;
   const compliance = t.assigned_total ? Math.round((t.assigned_done / t.assigned_total) * 100) : null;
+  // Routine sign-ins are noise on a dashboard — they belong in the Audit log.
+  const recent = (data.recent || []).filter((r) => r.action !== "user.login");
   return (
     <div>
       <PageHeader title={`Welcome${hi}`} subtitle="Here's how your training programme is doing." />
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Stat icon={Users} tint="brand" value={`${certRate}%`} label="Workforce certified" sub={`${t.certified_people} of ${t.people}`} onClick={() => navigate("/reporting")} />
+        <Stat icon={Users} tint="brand" value={`${certRate}%`} label="Workforce certified" sub={`${t.certified_people} of ${t.people}`} progress={certRate} onClick={() => navigate("/reporting")} />
         <Stat icon={ClipboardCheck} tint="brand-2" value={compliance == null ? "—" : `${compliance}%`} label="Training compliance"
-          sub={t.assigned_overdue ? `${t.assigned_overdue} overdue` : "required courses"} onClick={() => navigate("/reporting")} />
+          sub={t.assigned_overdue ? `${t.assigned_overdue} overdue` : "required courses"} progress={compliance ?? 0} onClick={() => navigate("/reporting")} />
         <Stat icon={Award} tint="ok" value={t.certificates} label="Certificates issued" onClick={() => navigate("/certificates")} />
         <Stat icon={Clock} tint="warn" value={t.expiring_soon} label="Expiring in 30 days" onClick={() => navigate("/reporting")} />
       </div>
@@ -108,11 +118,11 @@ function StaffDash({ data, hi, navigate }) {
         {/* Recent activity */}
         <div className="card p-6 lg:col-span-2">
           <h3 className="font-bold text-content flex items-center gap-2 mb-4"><Activity size={16} className="text-brand" /> Recent activity</h3>
-          {(!data.recent || data.recent.length === 0) ? (
-            <div className="py-8 text-center text-muted text-sm">No activity yet.</div>
+          {recent.length === 0 ? (
+            <div className="py-8 text-center text-muted text-sm">No recent activity yet.</div>
           ) : (
             <div className="space-y-3">
-              {data.recent.map((r, i) => (
+              {recent.map((r, i) => (
                 <div key={i} className="flex items-start gap-3">
                   <div className="w-1.5 h-1.5 rounded-full bg-brand mt-2 flex-shrink-0" />
                   <div className="min-w-0 flex-1">

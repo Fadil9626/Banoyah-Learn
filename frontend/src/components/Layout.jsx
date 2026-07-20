@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, BookOpen, Award, Plug, BarChart3,
-  Settings, LogOut, Menu, X, GraduationCap, ScrollText,
+  Settings, LogOut, Menu, X, GraduationCap, ScrollText, Building2,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import Brand from "./Brand";
@@ -83,8 +83,12 @@ export default function Layout({ children }) {
           <button className="lg:hidden text-muted hover:text-content" onClick={() => setOpen(true)}>
             <Menu size={20} />
           </button>
-          <div className="min-w-0">
-            <p className="text-sm font-bold text-content truncate">{org?.name || "Workspace"}</p>
+          <div className="min-w-0 flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg grid place-items-center bg-surface-2 text-muted flex-shrink-0"><Building2 size={16} /></div>
+            <div className="min-w-0 leading-tight">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-faint">Workspace</p>
+              <p className="text-sm font-bold text-content truncate">{org?.name || "Workspace"}</p>
+            </div>
           </div>
           <div className="ml-auto flex items-center gap-3">
             <ThemeToggle />
