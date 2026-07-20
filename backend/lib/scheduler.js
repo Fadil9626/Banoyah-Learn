@@ -176,6 +176,13 @@ function start() {
   console.log("[reminders] re-certification scheduler started");
 }
 
+// Stop the loop so a graceful shutdown doesn't leave a pending cycle armed.
+// (An in-flight cycle finishes on its own; this just cancels the next wake-up.)
+function stop() {
+  if (timer) { clearTimeout(timer); timer = null; }
+  state.next_run = null;
+}
+
 const getState = () => ({ ...state });
 
-module.exports = { start, runReminderCycle, getState };
+module.exports = { start, stop, runReminderCycle, getState };
