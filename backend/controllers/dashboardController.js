@@ -65,6 +65,49 @@ const summary = async (req, res) => {
               AND cert.id IS NULL${af})                                                           AS assigned_overdue`,
       params
     );
+    const ef = ids ? " AND e.user_id = ANY($2)" : "";
+
+    // Completions over time — certificates issued per month (last 6 months, zero-filled).
+    const trendRows = (await pool.query(
+      `SELECT to_char(date_trunc('month', issued_at), 'YYYY-MM') AS month, COUNT(*) AS count
+         FROM certificates
+        WHERE org_id=$1 AND issued_at >= date_trunc('month', NOW()) - INTERVAL '5 months'${cf}
+        GROUP BY 1`, params
+    )).rows;
+    const trendMap = Object.fromEntries(trendRows.map((r) => [r.month, +r.count]));
+    const trend = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      trend.push({ month: key, label: d.toLocaleString(undefined, { month: "short" }), count: trendMap[key] || 0 });
+    }
+
+    // Needs attention — overdue required courses not yet certified (person + course + days late).
+    const needs_attention = (await pool.query(
+      `SELECT u.name AS person, u.job_title, c.title AS course, a.due_date,
+              (CURRENT_DATE - a.due_date) AS days_overdue
+         FROM assignments a
+         JOIN users u ON u.id=a.user_id
+         JOIN courses c ON c.id=a.course_id
+         LEFT JOIN certificates cert ON cert.user_id=a.user_id AND cert.course_id=a.course_id
+              AND (cert.certified_until IS NULL OR cert.certified_until > NOW())
+        WHERE a.org_id=$1 AND a.due_date IS NOT NULL AND a.due_date < CURRENT_DATE AND cert.id IS NULL${af}
+        ORDER BY a.due_date ASC LIMIT 6`, params
+    )).rows.map((r) => ({ ...r, days_overdue: +r.days_overdue }));
+
+    // Top courses — most-enrolled published courses + their completion rate.
+    const top_courses = (await pool.query(
+      `SELECT c.id, c.title,
+              COUNT(e.id)::int AS enrolled,
+              COUNT(*) FILTER (WHERE e.status='passed')::int AS passed
+         FROM courses c
+         LEFT JOIN enrollments e ON e.course_id=c.id${ef}
+        WHERE c.org_id=$1 AND c.status='published'
+        GROUP BY c.id, c.title
+       HAVING COUNT(e.id) > 0
+        ORDER BY enrolled DESC, passed DESC LIMIT 5`, params
+    )).rows.map((r) => ({ ...r, rate: r.enrolled ? Math.round((r.passed / r.enrolled) * 100) : 0 }));
+
     // Managers don't see org-wide activity (only admins do).
     const recent = req.user.role === "manager" ? [] : (await pool.query(
       "SELECT actor_name, action, target, created_at FROM audit_log WHERE org_id=$1 ORDER BY created_at DESC, id DESC LIMIT 8", [org]
@@ -76,7 +119,7 @@ const summary = async (req, res) => {
         certified_people: +t.certified_people, expiring_soon: +t.expiring_soon, expired: +t.expired,
         assigned_total: +t.assigned_total, assigned_done: +t.assigned_done, assigned_overdue: +t.assigned_overdue,
       },
-      recent,
+      trend, needs_attention, top_courses, recent,
     });
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
