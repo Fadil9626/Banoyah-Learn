@@ -135,7 +135,7 @@ function StaffDash({ data, hi, navigate }) {
                 {trend.map((d, i) => (
                   <div key={i} className="flex-1 flex flex-col items-center justify-end h-full">
                     <span className="text-[11px] font-bold text-content tabular-nums mb-1 h-4">{d.count || ""}</span>
-                    <div className="w-full rounded-t-md transition hover:brightness-110" title={`${d.label}: ${d.count} completion${d.count === 1 ? "" : "s"}`}
+                    <div className="w-full max-w-[52px] rounded-t-md transition hover:brightness-110" title={`${d.label}: ${d.count} completion${d.count === 1 ? "" : "s"}`}
                       style={{ height: `${(d.count / maxTrend) * 88}%`, minHeight: d.count ? "6px" : "0", backgroundColor: "rgb(var(--brand))" }} />
                   </div>
                 ))}

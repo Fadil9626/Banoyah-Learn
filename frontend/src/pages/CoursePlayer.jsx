@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import {
   ArrowLeft, Loader2, CheckCircle2, Circle, FileText, Video, File,
-  ChevronRight, Award, RotateCcw, X, Check, ListChecks,
+  ChevronRight, Award, RotateCcw, X, Check, ListChecks, AlertTriangle,
 } from "lucide-react";
 import api from "../lib/api";
 
@@ -143,7 +143,6 @@ function Quiz({ course, questions, onCancel, onDone }) {
   const answered = Object.keys(answers).length;
 
   const submit = async () => {
-    if (answered < questions.length && !confirm(`You've answered ${answered} of ${questions.length}. Submit anyway?`)) return;
     setBusy(true);
     try {
       const r = await api(`learn/courses/${course.id}/submit`, { method: "POST", body: JSON.stringify({ answers }) });
@@ -184,10 +183,16 @@ function Quiz({ course, questions, onCancel, onDone }) {
         ))}
       </div>
 
-      <div className="flex gap-3 mt-6">
+      {answered < questions.length && (
+        <div className="mt-6 flex items-center gap-2 text-xs text-warn rounded-xl px-3.5 py-2.5" style={{ backgroundColor: "rgb(var(--warn) / 0.10)" }}>
+          <AlertTriangle size={14} className="flex-shrink-0" />
+          {questions.length - answered} question{questions.length - answered === 1 ? "" : "s"} unanswered — they'll be marked wrong.
+        </div>
+      )}
+      <div className="flex gap-3 mt-4">
         <button onClick={onCancel} className="btn-ghost flex-1">Back to lessons</button>
         <button onClick={submit} disabled={busy} className="btn-brand flex-1">
-          {busy ? <Loader2 size={16} className="animate-spin" /> : "Submit quiz"}
+          {busy ? <Loader2 size={16} className="animate-spin" /> : (answered < questions.length ? "Submit anyway" : "Submit quiz")}
         </button>
       </div>
     </div>

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
-import { BookOpen, Award, Play, RotateCcw, CheckCircle2, Loader2, FileText, HelpCircle, Clock, ClipboardCheck, Calendar, AlertTriangle } from "lucide-react";
+import { BookOpen, Award, Play, RotateCcw, CheckCircle2, Loader2, FileText, HelpCircle, Clock, ClipboardCheck, Calendar, AlertTriangle, Search } from "lucide-react";
 import api from "../lib/api";
 import PageHeader from "../components/PageHeader";
 
@@ -9,6 +9,7 @@ export default function MyLearning() {
   const [catalog, setCatalog] = useState(null);
   const [certs, setCerts] = useState([]);
   const [assigned, setAssigned] = useState([]);
+  const [q, setQ] = useState("");
   const navigate = useNavigate();
 
   const load = async () => {
@@ -45,16 +46,33 @@ export default function MyLearning() {
         </div>
       )}
 
-      <h2 className="text-sm font-bold text-content mb-3 flex items-center gap-2"><BookOpen size={16} className="text-brand" /> Available courses</h2>
+      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+        <h2 className="text-sm font-bold text-content flex items-center gap-2">
+          <BookOpen size={16} className="text-brand" /> Available courses
+          {catalog?.length > 0 && <span className="text-faint font-medium">({catalog.length})</span>}
+        </h2>
+        {catalog?.length > 0 && (
+          <div className="relative">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search courses…"
+              className="pl-9 pr-3 py-2 rounded-xl bg-surface-2 border border-line text-sm w-full sm:w-56 text-content placeholder:text-faint focus:outline-none focus:border-brand/50" />
+          </div>
+        )}
+      </div>
       {catalog == null ? (
         <div className="py-20 grid place-items-center text-muted"><Loader2 className="animate-spin" /></div>
       ) : catalog.length === 0 ? (
         <div className="card py-16 text-center text-muted">No published courses yet. Check back soon.</div>
-      ) : (
-        <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
-          {catalog.map((c) => <CourseCard key={c.id} course={c} onOpen={() => navigate(`/learn/${c.id}`)} />)}
-        </div>
-      )}
+      ) : (() => {
+        const filtered = catalog.filter((c) => `${c.title} ${c.category || ""}`.toLowerCase().includes(q.trim().toLowerCase()));
+        return filtered.length === 0 ? (
+          <div className="card py-12 text-center text-muted text-sm">No courses match "{q}".</div>
+        ) : (
+          <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {filtered.map((c) => <CourseCard key={c.id} course={c} onOpen={() => navigate(`/learn/${c.id}`)} />)}
+          </div>
+        );
+      })()}
     </div>
   );
 }
