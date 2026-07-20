@@ -27,6 +27,8 @@ export default function CoursePlayer() {
 
   const done = useMemo(() => new Set((data?.enrollment?.completed_lessons || []).map(Number)), [data]);
   const allLessonsDone = data && data.lessons.length > 0 && data.lessons.every((l) => done.has(l.id));
+  const doneCount = data ? data.lessons.filter((l) => done.has(l.id)).length : 0;
+  const pct = data && data.lessons.length ? Math.round((doneCount / data.lessons.length) * 100) : 0;
 
   const markDone = async (lessonId) => {
     try {
@@ -60,6 +62,15 @@ export default function CoursePlayer() {
       <div className="grid lg:grid-cols-[280px_1fr] gap-6">
         {/* Lesson list */}
         <aside className="card p-2 h-max lg:sticky lg:top-20">
+          <div className="px-3 pt-2 pb-3">
+            <div className="flex items-center justify-between text-xs mb-1.5">
+              <span className="font-semibold text-content">{doneCount} of {data.lessons.length} lessons</span>
+              <span className="text-faint tabular-nums">{pct}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-surface-2 overflow-hidden">
+              <div className="h-full rounded-full transition-all" style={{ width: `${Math.max(2, pct)}%`, backgroundImage: "linear-gradient(90deg, rgb(var(--brand)), rgb(var(--brand-2)))" }} />
+            </div>
+          </div>
           {data.lessons.map((l, i) => {
             const Icon = ICON[l.type] || FileText;
             const isDone = done.has(l.id);
