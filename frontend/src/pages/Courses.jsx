@@ -1,17 +1,23 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
-import { Plus, BookOpen, X, Loader2, FileText, HelpCircle, ChevronRight } from "lucide-react";
+import { Plus, BookOpen, X, Loader2, FileText, HelpCircle, ChevronRight, Search } from "lucide-react";
 import api from "../lib/api";
 import PageHeader from "../components/PageHeader";
 
 export default function Courses() {
   const [rows, setRows] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState("all");
   const navigate = useNavigate();
 
   const load = () => api("courses").then(setRows).catch((e) => { toast.error(e.message); setRows([]); });
   useEffect(() => { load(); }, []);
+
+  const filtered = (rows || []).filter((c) =>
+    (status === "all" || c.status === status) &&
+    `${c.title} ${c.category || ""}`.toLowerCase().includes(q.trim().toLowerCase()));
 
   return (
     <div>
@@ -31,27 +37,46 @@ export default function Courses() {
           <button className="btn-brand" onClick={() => setCreating(true)}><Plus size={16} /> New course</button>
         </div>
       ) : (
-        <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
-          {rows.map((c) => (
-            <button key={c.id} onClick={() => navigate(`/courses/${c.id}`)}
-              className="card p-5 text-left hover:shadow-glow hover:border-brand/40 transition group">
-              <div className="flex items-start justify-between gap-3">
-                <div className="w-10 h-10 rounded-xl grid place-items-center text-brand-fg flex-shrink-0"
-                  style={{ backgroundImage: "linear-gradient(135deg, rgb(var(--brand)), rgb(var(--brand-2)))" }}>
-                  <BookOpen size={18} />
-                </div>
-                <StatusChip status={c.status} />
-              </div>
-              <h3 className="mt-4 font-bold text-content leading-snug line-clamp-2">{c.title}</h3>
-              {c.category && <p className="text-xs text-muted mt-1">{c.category}</p>}
-              <div className="mt-4 flex items-center gap-4 text-xs text-muted">
-                <span className="flex items-center gap-1.5"><FileText size={13} />{c.lesson_count} lesson{c.lesson_count == 1 ? "" : "s"}</span>
-                <span className="flex items-center gap-1.5"><HelpCircle size={13} />{c.question_count} question{c.question_count == 1 ? "" : "s"}</span>
-                <span className="ml-auto text-faint group-hover:text-brand transition"><ChevronRight size={16} /></span>
-              </div>
-            </button>
-          ))}
-        </div>
+        <>
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
+            <div className="relative flex-1 min-w-[200px] max-w-xs">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search courses…" className="input pl-9" />
+            </div>
+            <div className="flex gap-1 p-1 rounded-xl bg-surface-2">
+              {[["all", "All"], ["published", "Published"], ["draft", "Drafts"]].map(([k, l]) => (
+                <button key={k} onClick={() => setStatus(k)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${status === k ? "text-brand-fg" : "text-muted hover:text-content"}`}
+                  style={status === k ? { backgroundImage: "linear-gradient(135deg, rgb(var(--brand)), rgb(var(--brand-2)))" } : undefined}>{l}</button>
+              ))}
+            </div>
+          </div>
+          {filtered.length === 0 ? (
+            <div className="card py-14 text-center text-muted text-sm">No courses match your filter.</div>
+          ) : (
+            <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
+              {filtered.map((c) => (
+                <button key={c.id} onClick={() => navigate(`/courses/${c.id}`)}
+                  className="card p-5 text-left hover:shadow-glow hover:border-brand/40 transition group">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="w-10 h-10 rounded-xl grid place-items-center text-brand-fg flex-shrink-0"
+                      style={{ backgroundImage: "linear-gradient(135deg, rgb(var(--brand)), rgb(var(--brand-2)))" }}>
+                      <BookOpen size={18} />
+                    </div>
+                    <StatusChip status={c.status} />
+                  </div>
+                  <h3 className="mt-4 font-bold text-content leading-snug line-clamp-2">{c.title}</h3>
+                  {c.category && <p className="text-xs text-muted mt-1">{c.category}</p>}
+                  <div className="mt-4 flex items-center gap-4 text-xs text-muted">
+                    <span className="flex items-center gap-1.5"><FileText size={13} />{c.lesson_count} lesson{c.lesson_count == 1 ? "" : "s"}</span>
+                    <span className="flex items-center gap-1.5"><HelpCircle size={13} />{c.question_count} question{c.question_count == 1 ? "" : "s"}</span>
+                    <span className="ml-auto text-faint group-hover:text-brand transition"><ChevronRight size={16} /></span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {creating && <CreateModal onClose={() => setCreating(false)}
