@@ -44,7 +44,14 @@ export default function Reporting() {
       </PageHeader>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Stat icon={Users} tint="brand" value={`${certRate}%`} label="Workforce certified" sub={`${t.certified_people} of ${t.people} people`} />
+        <div className="card p-5 flex items-center gap-4">
+          <RingGauge value={certRate} />
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-muted">Workforce certified</p>
+            <p className="text-lg font-black text-content mt-0.5 tabular-nums">{t.certified_people}<span className="text-sm font-bold text-faint"> / {t.people}</span></p>
+            <p className="text-[11px] text-faint">people fully certified</p>
+          </div>
+        </div>
         <Stat icon={ShieldCheck} tint="ok" value={t.certificates} label="Certificates issued" />
         <Stat icon={Clock} tint="warn" value={t.expiring_soon} label="Expiring in 30 days" />
         <Stat icon={AlertTriangle} tint="danger" value={t.expired} label="Expired" />
@@ -181,6 +188,22 @@ export default function Reporting() {
         )}
       </div>
     </div>
+  );
+}
+
+// Single-value compliance gauge — the headline "how much of the workforce is
+// certified" read. One brand hue (magnitude), value in the centre.
+function RingGauge({ value }) {
+  const r = 40, circ = 2 * Math.PI * r;
+  const off = circ - (Math.max(0, Math.min(100, value)) / 100) * circ;
+  return (
+    <svg viewBox="0 0 100 100" className="w-24 h-24 flex-shrink-0" role="img" aria-label={`${value}% of the workforce certified`}>
+      <circle cx="50" cy="50" r={r} fill="none" strokeWidth="10" style={{ stroke: "rgb(var(--surface-2))" }} />
+      <circle cx="50" cy="50" r={r} fill="none" strokeWidth="10" strokeLinecap="round"
+        strokeDasharray={circ} strokeDashoffset={off} transform="rotate(-90 50 50)"
+        style={{ stroke: "rgb(var(--brand))", transition: "stroke-dashoffset .7s ease" }} />
+      <text x="50" y="52" textAnchor="middle" dominantBaseline="middle" style={{ fill: "rgb(var(--content))", fontSize: "22px", fontWeight: 800 }}>{value}%</text>
+    </svg>
   );
 }
 
