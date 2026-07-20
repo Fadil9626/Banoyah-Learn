@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation, Outlet } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "./context/AuthContext";
 import Layout from "./components/Layout";
+import NotFound from "./pages/NotFound"; // eager: an error page shouldn't need a chunk fetch to render
 
 // Code-split every page so the login screen (and a learner's session) never has
 // to download the heavy authoring/admin bundles up front.
@@ -45,7 +46,11 @@ function ProtectedLayout({ allowedRoles }) {
   if (allowedRoles && !allowedRoles.includes(user.role)) return <Navigate to="/" replace />;
   return (
     <Layout>
-      <Outlet />
+      {/* Suspense sits INSIDE the Layout: navigating to a not-yet-loaded page
+          chunk spins only the content area — the sidebar/topbar stay put. */}
+      <Suspense fallback={<PageLoader />}>
+        <Outlet />
+      </Suspense>
     </Layout>
   );
 }
@@ -84,6 +89,8 @@ export default function App() {
           <Route path="/learn/certificate/:serial" element={<Certificate />} />
           <Route path="/learn/:id" element={<CoursePlayer />} />
           <Route path="/profile" element={<Profile />} />
+          {/* Unknown in-app path → 404 within the Layout, not a silent bounce home */}
+          <Route path="*" element={<NotFound />} />
         </Route>
 
         {/* Oversight: admin + instructor + manager */}
@@ -106,7 +113,6 @@ export default function App() {
           <Route path="/settings" element={<Settings />} />
         </Route>
 
-        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
   );
