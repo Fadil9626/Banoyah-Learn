@@ -17,6 +17,7 @@ export default function People() {
   const canManage = user?.role === "admin" || user?.role === "instructor";
   const [rows, setRows] = useState(null);
   const [q, setQ] = useState("");
+  const [role, setRole] = useState("all");
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
   const [resetTarget, setResetTarget] = useState(null);
@@ -26,6 +27,9 @@ export default function People() {
     api(`users${params}`).then(setRows).catch((e) => { toast.error(e.message); setRows([]); });
   };
   useEffect(() => { const t = setTimeout(load, 200); return () => clearTimeout(t); }, [q]); // eslint-disable-line
+
+  const visible = (rows || []).filter((u) => role === "all" || u.role === role);
+  const roleCounts = (rows || []).reduce((m, u) => ({ ...m, [u.role]: (m[u.role] || 0) + 1 }), {});
 
   return (
     <div>
@@ -41,21 +45,36 @@ export default function People() {
       </PageHeader>
 
       <div className="card overflow-hidden">
-        <div className="p-3 border-b border-line">
-          <div className="relative max-w-sm">
+        <div className="p-3 border-b border-line flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[200px] max-w-sm">
             <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-faint" />
             <input className="input pl-10" placeholder="Search by name or email…"
               value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
+          {rows?.length > 0 && (
+            <div className="flex gap-1 p-1 rounded-xl bg-surface-2 overflow-x-auto">
+              {[["all", "All"], ["learner", "Learners"], ["manager", "Managers"], ["instructor", "Instructors"], ["admin", "Admins"]]
+                .filter(([k]) => k === "all" || roleCounts[k])
+                .map(([k, l]) => (
+                  <button key={k} onClick={() => setRole(k)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${role === k ? "text-brand-fg" : "text-muted hover:text-content"}`}
+                    style={role === k ? { backgroundImage: "linear-gradient(135deg, rgb(var(--brand)), rgb(var(--brand-2)))" } : undefined}>
+                    {l}{k !== "all" && <span className="opacity-70"> {roleCounts[k]}</span>}
+                  </button>
+                ))}
+            </div>
+          )}
         </div>
 
         {rows == null ? (
           <div className="py-20 grid place-items-center text-muted"><Loader2 className="animate-spin" /></div>
         ) : rows.length === 0 ? (
           <Empty onAdd={() => setAdding(true)} />
+        ) : visible.length === 0 ? (
+          <div className="py-16 text-center text-muted text-sm">No {role}s match.</div>
         ) : (
           <div className="divide-y divide-line">
-            {rows.map((u) => (
+            {visible.map((u) => (
               <div key={u.id} className="flex items-center gap-4 px-4 sm:px-5 py-3.5 hover:bg-surface-2/50 transition">
                 <div className="w-9 h-9 rounded-full grid place-items-center text-xs font-bold text-brand-fg flex-shrink-0"
                   style={{ backgroundImage: "linear-gradient(135deg, rgb(var(--brand)), rgb(var(--brand-2)))" }}>
