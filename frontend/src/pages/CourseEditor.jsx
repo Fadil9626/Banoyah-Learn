@@ -4,7 +4,7 @@ import { toast } from "react-hot-toast";
 import {
   ArrowLeft, Loader2, Save, Trash2, Plus, X, FileText, Video, File,
   ChevronUp, ChevronDown, Check, Globe, PencilLine, HelpCircle, Upload,
-  ClipboardCheck, UserPlus, Calendar, Sparkles,
+  ClipboardCheck, UserPlus, Calendar, Sparkles, AlertTriangle,
 } from "lucide-react";
 import api, { getToken } from "../lib/api";
 import { StatusChip } from "./Courses";
@@ -168,6 +168,8 @@ function DetailsTab({ course, onSaved }) {
 // ── Lessons ───────────────────────────────────────────────────────────────────
 function LessonsTab({ course, reload }) {
   const [editing, setEditing] = useState(null); // lesson object or {} for new
+  const [confirmDel, setConfirmDel] = useState(null); // lesson pending delete
+  const [busy, setBusy] = useState(false);
   const lessons = course.lessons;
 
   const move = async (idx, dir) => {
@@ -181,10 +183,11 @@ function LessonsTab({ course, reload }) {
     } catch (e) { toast.error(e.message); }
   };
 
-  const remove = async (lesson) => {
-    if (!confirm(`Delete lesson "${lesson.title}"?`)) return;
-    try { await api(`lessons/${lesson.id}`, { method: "DELETE" }); toast.success("Lesson deleted"); reload(); }
+  const remove = async () => {
+    setBusy(true);
+    try { await api(`lessons/${confirmDel.id}`, { method: "DELETE" }); toast.success("Lesson deleted"); setConfirmDel(null); reload(); }
     catch (e) { toast.error(e.message); }
+    finally { setBusy(false); }
   };
 
   return (
@@ -206,7 +209,7 @@ function LessonsTab({ course, reload }) {
               <p className="text-xs text-faint capitalize">{l.type}{l.type !== "text" && l.media_url ? ` · ${l.media_url}` : ""}</p>
             </div>
             <button onClick={() => setEditing(l)} className="btn-ghost px-3 py-1.5 text-xs"><PencilLine size={13} /> Edit</button>
-            <button onClick={() => remove(l)} className="text-faint hover:text-danger p-2"><Trash2 size={15} /></button>
+            <button onClick={() => setConfirmDel(l)} className="text-faint hover:text-danger p-2"><Trash2 size={15} /></button>
           </div>
         );
       })}
@@ -216,6 +219,11 @@ function LessonsTab({ course, reload }) {
 
       {editing && <LessonModal courseId={course.id} lesson={editing}
         onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
+
+      <ConfirmDialog open={!!confirmDel} busy={busy}
+        title="Delete lesson"
+        message={confirmDel ? <>This permanently removes <strong className="text-content">“{confirmDel.title}”</strong> and its content. This can’t be undone.</> : null}
+        onConfirm={remove} onCancel={() => setConfirmDel(null)} />
     </div>
   );
 }
@@ -333,12 +341,15 @@ function LessonModal({ courseId, lesson, onClose, onSaved }) {
 function QuizTab({ course, reload }) {
   const [editing, setEditing] = useState(null);
   const [generating, setGenerating] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(null); // question pending delete
+  const [busy, setBusy] = useState(false);
   const qs = course.questions;
 
-  const remove = async (q) => {
-    if (!confirm("Delete this question?")) return;
-    try { await api(`questions/${q.id}`, { method: "DELETE" }); toast.success("Question deleted"); reload(); }
+  const remove = async () => {
+    setBusy(true);
+    try { await api(`questions/${confirmDel.id}`, { method: "DELETE" }); toast.success("Question deleted"); setConfirmDel(null); reload(); }
     catch (e) { toast.error(e.message); }
+    finally { setBusy(false); }
   };
 
   return (
@@ -366,7 +377,7 @@ function QuizTab({ course, reload }) {
               </ul>
             </div>
             <button onClick={() => setEditing(q)} className="btn-ghost px-3 py-1.5 text-xs"><PencilLine size={13} /> Edit</button>
-            <button onClick={() => remove(q)} className="text-faint hover:text-danger p-2"><Trash2 size={15} /></button>
+            <button onClick={() => setConfirmDel(q)} className="text-faint hover:text-danger p-2"><Trash2 size={15} /></button>
           </div>
         </div>
       ))}
@@ -378,6 +389,36 @@ function QuizTab({ course, reload }) {
         onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
       {generating && <GenerateModal courseId={course.id}
         onClose={() => setGenerating(false)} onSaved={() => { setGenerating(false); reload(); }} />}
+
+      <ConfirmDialog open={!!confirmDel} busy={busy}
+        title="Delete question"
+        message={confirmDel ? <>This permanently removes the question <strong className="text-content">“{confirmDel.prompt}”</strong>. This can’t be undone.</> : null}
+        onConfirm={remove} onCancel={() => setConfirmDel(null)} />
+    </div>
+  );
+}
+
+// Reusable destructive-action confirm — replaces the browser's native confirm()
+// so deletes match the app's dark surface instead of a jarring OS dialog.
+function ConfirmDialog({ open, title, message, onConfirm, onCancel, busy }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[60] grid place-items-center p-4 bg-black/50 backdrop-blur-sm" onClick={busy ? undefined : onCancel}>
+      <div className="card w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="w-11 h-11 rounded-xl grid place-items-center mb-4"
+          style={{ backgroundColor: "rgb(var(--danger) / 0.12)", color: "rgb(var(--danger))" }}>
+          <AlertTriangle size={20} />
+        </div>
+        <h3 className="font-bold text-content text-lg">{title}</h3>
+        <p className="text-sm text-muted mt-1.5 leading-relaxed">{message}</p>
+        <div className="flex gap-3 pt-5">
+          <button type="button" className="btn-ghost flex-1" onClick={onCancel} disabled={busy}>Cancel</button>
+          <button type="button" className="btn-brand flex-1" onClick={onConfirm} disabled={busy}
+            style={{ backgroundImage: "none", backgroundColor: "rgb(var(--danger))" }}>
+            {busy ? <Loader2 size={16} className="animate-spin" /> : <><Trash2 size={16} /> Delete</>}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -577,14 +618,17 @@ function QuestionModal({ courseId, question, onClose, onSaved }) {
 function AssignmentsTab({ course }) {
   const [rows, setRows] = useState(null);
   const [assigning, setAssigning] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(null); // assignment pending removal
+  const [busy, setBusy] = useState(false);
 
   const load = () => api(`assignments/course/${course.id}`).then(setRows).catch((e) => { toast.error(e.message); setRows([]); });
   useEffect(() => { load(); }, [course.id]); // eslint-disable-line
 
-  const unassign = async (a) => {
-    if (!confirm(`Remove ${a.name} from this course?`)) return;
-    try { await api(`assignments/${a.id}`, { method: "DELETE" }); toast.success("Unassigned"); load(); }
+  const unassign = async () => {
+    setBusy(true);
+    try { await api(`assignments/${confirmDel.id}`, { method: "DELETE" }); toast.success("Unassigned"); setConfirmDel(null); load(); }
     catch (e) { toast.error(e.message); }
+    finally { setBusy(false); }
   };
 
   const overdueCount = (rows || []).filter((r) => r.status === "overdue").length;
@@ -623,7 +667,7 @@ function AssignmentsTab({ course }) {
                   </span>
                 )}
                 <span className="chip flex-shrink-0" style={{ backgroundColor: s.bg, color: s.fg }}>{s.label}</span>
-                <button onClick={() => unassign(a)} className="text-faint hover:text-danger p-1.5"><X size={15} /></button>
+                <button onClick={() => setConfirmDel(a)} className="text-faint hover:text-danger p-1.5"><X size={15} /></button>
               </div>
             );
           })}
@@ -631,6 +675,11 @@ function AssignmentsTab({ course }) {
       )}
 
       {assigning && <AssignModal courseId={course.id} onClose={() => setAssigning(false)} onDone={() => { setAssigning(false); load(); }} />}
+
+      <ConfirmDialog open={!!confirmDel} busy={busy}
+        title="Remove assignment"
+        message={confirmDel ? <>Remove <strong className="text-content">{confirmDel.name}</strong> from this course? Their progress on it will be discarded.</> : null}
+        onConfirm={unassign} onCancel={() => setConfirmDel(null)} />
     </div>
   );
 }
