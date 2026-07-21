@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import {
   ArrowLeft, Loader2, CheckCircle2, Circle, FileText, Video, File,
   ChevronRight, Award, RotateCcw, X, Check, ListChecks, AlertTriangle,
+  Maximize2, Minimize2,
 } from "lucide-react";
 import api from "../lib/api";
 import LessonContent from "../components/LessonContent";
@@ -17,6 +18,23 @@ export default function CoursePlayer() {
   const [mode, setMode] = useState("learn"); // learn | quiz | result
   const [activeLesson, setActiveLesson] = useState(0);
   const [result, setResult] = useState(null);
+  const [fs, setFs] = useState(false);
+  const readerRef = useRef(null);
+
+  // Full-screen reading mode. Uses the native Fullscreen API where available and
+  // falls back to a fixed overlay (the conditional classes below) otherwise; the
+  // fullscreenchange listener keeps our state in sync when the user presses Esc.
+  const toggleFs = () => {
+    const el = readerRef.current;
+    if (!document.fullscreenElement) el?.requestFullscreen?.().catch(() => setFs(true));
+    else document.exitFullscreen?.();
+    if (!el?.requestFullscreen) setFs((v) => !v); // no API → pure CSS overlay
+  };
+  useEffect(() => {
+    const onChange = () => setFs(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
 
   const load = async () => {
     try {
@@ -101,9 +119,17 @@ export default function CoursePlayer() {
         </aside>
 
         {/* Lesson content */}
-        <section className="card p-6 lg:p-8 min-h-[320px] flex flex-col">
-          <div className="flex items-center gap-2 text-xs font-semibold text-faint uppercase tracking-wide mb-3">
-            Lesson {activeLesson + 1} of {data.lessons.length}
+        <section ref={readerRef}
+          className={`card flex flex-col ${fs ? "fixed inset-0 z-50 rounded-none overflow-y-auto bg-bg p-6 sm:p-10" : "p-6 lg:p-8 min-h-[320px]"}`}>
+         <div className={`flex flex-col flex-1 w-full ${fs ? "max-w-3xl mx-auto" : ""}`}>
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <span className="text-xs font-semibold text-faint uppercase tracking-wide">
+              Lesson {activeLesson + 1} of {data.lessons.length}
+            </span>
+            <button onClick={toggleFs} title={fs ? "Exit full screen" : "Full screen"}
+              className="text-faint hover:text-content p-1.5 -mr-1 rounded-lg hover:bg-surface-2 transition">
+              {fs ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            </button>
           </div>
           <h2 className="text-xl font-bold text-content mb-4">{lesson.title}</h2>
 
@@ -138,6 +164,7 @@ export default function CoursePlayer() {
               )}
             </div>
           </div>
+         </div>
         </section>
       </div>
     </div>
