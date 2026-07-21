@@ -1,117 +1,127 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Loader2, Printer, ArrowLeft } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { renderToStaticMarkup } from "react-dom/server";
+import { toast } from "react-hot-toast";
 import api from "../lib/api";
-import LessonContent from "../components/LessonContent";
 
-// A print-optimised, light "document" view of a whole course — cover + every
-// lesson (Markdown + diagrams/photos) — so it can be saved as a PDF handout via
-// the browser's native print-to-PDF. Forces the light token set regardless of
-// the app theme so the PDF looks like a document, not a dark screenshot.
-const LIGHT = {
-  "--bg": "248 250 252", "--surface": "255 255 255", "--surface-2": "241 245 249",
-  "--border": "226 232 240", "--text": "15 23 42", "--muted": "100 116 139",
-  "--faint": "148 163 184", "--brand": "79 70 229", "--brand-2": "124 58 237",
-  "--brand-fg": "255 255 255", "--ok": "16 185 129", "--warn": "217 119 6", "--danger": "225 29 72",
-};
+// Printable course handout.
+//
+// The app shell (height-pinned root, Tailwind preflight, dark theme tokens)
+// breaks Chromium's print pagination and produced blank sheets. So this page
+// builds a fully self-contained plain-HTML document (markdown → semantic HTML,
+// inline stylesheet, hex colours only) and shows it in an iframe. The preview
+// IS the print source: printing prints the iframe's document, nothing else.
+const esc = (s = "") => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+function buildHandoutHtml(course, lessons) {
+  const lessonBlocks = lessons.map((l, i) => `
+    <section>
+      <p class="kicker">LESSON ${i + 1}</p>
+      <h2 class="lesson-title">${esc(l.title)}</h2>
+      ${l.type === "text"
+        ? renderToStaticMarkup(<ReactMarkdown remarkPlugins={[remarkGfm]}>{l.body || ""}</ReactMarkdown>)
+        : `<p class="muted">${l.type === "video" ? "Video lesson" : "PDF lesson"}${l.media_url ? " — " + esc(l.media_url) : ""}</p>`}
+    </section>`).join("\n");
+
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<base href="${window.location.origin}/">
+<title>${esc(course.title)} — Course Handout</title>
+<style>
+  @page { margin: 16mm; }
+  html, body { margin: 0; padding: 0; background: #fff; }
+  body {
+    font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+    color: #0f172a; font-size: 13.5px; line-height: 1.65;
+    max-width: 760px; margin: 0 auto; padding: 28px 24px 60px;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  header { border-bottom: 2.5px solid #4F46E5; padding-bottom: 14px; margin-bottom: 26px; }
+  .brand  { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .08em; color: #4F46E5; }
+  h1 { margin: 8px 0 4px; font-size: 26px; font-weight: 800; line-height: 1.2; color: #0f172a; }
+  .cat  { margin: 0; font-size: 12.5px; color: #64748b; }
+  .desc { margin: 10px 0 0; font-size: 12.5px; color: #475569; }
+  .meta { margin: 10px 0 0; font-size: 11px; color: #94a3b8; }
+  .muted { color: #64748b; }
+  section { margin-bottom: 26px; }
+  .kicker { margin: 0 0 2px; font-size: 11px; font-weight: 800; letter-spacing: .05em; color: #4F46E5; }
+  .lesson-title { margin: 0 0 8px; font-size: 19px; font-weight: 800; color: #0f172a; }
+  h2, h3, h4 { color: #0f172a; break-after: avoid; page-break-after: avoid; }
+  section h1 { font-size: 17px; margin: 16px 0 6px; }     /* markdown "# " inside a lesson */
+  section h2:not(.lesson-title) { font-size: 15px; margin: 14px 0 5px; }
+  section h3 { font-size: 13.5px; margin: 12px 0 4px; }
+  p  { margin: 7px 0; }
+  ul, ol { margin: 7px 0; padding-left: 22px; }
+  li { margin: 3px 0; }
+  li::marker { color: #4F46E5; }
+  strong { font-weight: 700; color: #0f172a; }
+  a { color: #4F46E5; text-decoration: underline; }
+  blockquote { margin: 10px 0; padding: 2px 0 2px 12px; border-left: 3px solid #4F46E5; color: #334155; font-style: italic; }
+  code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 4px; padding: 1px 4px; }
+  img { display: block; max-width: 82%; margin: 12px auto; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; break-inside: avoid; page-break-inside: avoid; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 12.5px; }
+  th, td { border: 1px solid #e2e8f0; padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { background: #f1f5f9; font-weight: 700; }
+  footer { margin-top: 34px; padding-top: 10px; border-top: 1px solid #e2e8f0; font-size: 10.5px; color: #94a3b8; }
+</style>
+</head>
+<body>
+  <header>
+    <p class="brand">BANOYAH LEARN · COURSE HANDOUT</p>
+    <h1>${esc(course.title)}</h1>
+    ${course.category ? `<p class="cat">${esc(course.category)}</p>` : ""}
+    ${course.description ? `<p class="desc">${esc(course.description)}</p>` : ""}
+    <p class="meta">${lessons.length} lesson${lessons.length === 1 ? "" : "s"} · Pass mark ${course.pass_mark}%</p>
+  </header>
+  ${lessonBlocks}
+  <footer>Generated by Banoyah Learn · ${new Date().toLocaleDateString()}</footer>
+</body>
+</html>`;
+}
 
 export default function CourseHandout() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [data, setData] = useState(null);
-  const [err, setErr] = useState(false);
-  const printedRef = useRef(false);
+  const frameRef = useRef(null);
 
   useEffect(() => {
-    api(`learn/courses/${id}`).then(setData).catch(() => setErr(true));
-  }, [id]);
+    api(`learn/courses/${id}`)
+      .then(setData)
+      .catch((e) => { toast.error(e.message); navigate(-1); });
+  }, [id]); // eslint-disable-line
 
-  // Auto-open the print dialog once, after images have loaded (or a 3.5s cap) so
-  // the diagrams/photos are actually captured in the PDF.
-  useEffect(() => {
-    if (!data || printedRef.current) return;
-    printedRef.current = true;
-    let cancelled = false;
-    const imgs = Array.from(document.querySelectorAll(".handout-doc img"));
-    const waits = imgs.map((im) => im.complete ? Promise.resolve()
-      : new Promise((res) => { im.onload = res; im.onerror = res; }));
-    Promise.race([Promise.all(waits), new Promise((r) => setTimeout(r, 3500))])
-      .then(() => { if (!cancelled) window.print(); });
-    return () => { cancelled = true; };
-  }, [data]);
+  const print = () => {
+    const win = frameRef.current?.contentWindow;
+    if (!win) return;
+    // Wait for any not-yet-loaded images inside the document, then print the
+    // iframe's window — only the handout document paginates, never the app.
+    const imgs = Array.from(win.document.images || []);
+    Promise.all(imgs.map((im) => im.complete
+      ? Promise.resolve()
+      : new Promise((r) => { im.onload = im.onerror = r; })))
+      .then(() => { win.focus(); win.print(); });
+  };
 
-  if (err) return <div style={{ padding: 40, fontFamily: "system-ui" }}>Couldn't load this course.</div>;
-  if (!data) return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center" }}><Loader2 className="animate-spin" /></div>;
+  if (!data) return (
+    <div className="min-h-screen grid place-items-center bg-bg text-muted"><Loader2 className="animate-spin" /></div>
+  );
 
-  const { course, lessons = [] } = data;
+  const html = buildHandoutHtml(data.course, data.lessons || []);
 
   return (
-    <div className="handout-root" style={{
-      ...LIGHT, background: "#fff", minHeight: "100vh", color: "rgb(var(--text))",
-      colorScheme: "light", WebkitPrintColorAdjust: "exact", printColorAdjust: "exact",
-    }}>
-      <style>{`
-        /* Pin the light token set for the whole handout subtree (incl. LessonContent),
-           so text never resolves to the dark theme's near-white on white paper. */
-        .handout-root {
-          --bg:248 250 252; --surface:255 255 255; --surface-2:241 245 249; --border:226 232 240;
-          --text:15 23 42; --muted:100 116 139; --faint:148 163 184; --brand:79 70 229;
-          --brand-2:124 58 237; --brand-fg:255 255 255; --ok:16 185 129; --warn:217 119 6; --danger:225 29 72;
-        }
-        .handout-doc { max-width: 780px; margin: 0 auto; padding: 32px 32px 80px; color: #0f172a; }
-        @media print {
-          /* The app pins html/body/#root to height:100% which clips print to one
-             page and yields blank sheets — release it so the whole doc flows. */
-          html, body, #root { height: auto !important; min-height: 0 !important; overflow: visible !important; background: #fff !important; color-scheme: light; }
-          .no-print { display: none !important; }
-          .handout-doc { max-width: 100%; padding: 0; }
-          h1, h2, h3 { break-after: avoid; }
-          figure, img { break-inside: avoid; max-width: 100% !important; }
-          * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          @page { margin: 16mm; }
-        }
-      `}</style>
-
-      {/* Toolbar (screen only) */}
-      <div className="no-print" style={{
-        position: "sticky", top: 0, zIndex: 10, display: "flex", justifyContent: "space-between",
-        alignItems: "center", gap: 12, padding: "12px 20px", background: "#fff", borderBottom: "1px solid #e2e8f0",
-      }}>
+    <div className="h-screen flex flex-col bg-bg">
+      <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-b border-line flex-shrink-0">
         <button onClick={() => navigate(-1)} className="btn-ghost"><ArrowLeft size={16} /> Back</button>
-        <button onClick={() => window.print()} className="btn-brand"><Printer size={16} /> Print / Save as PDF</button>
+        <button onClick={print} className="btn-brand"><Printer size={16} /> Print / Save as PDF</button>
       </div>
-
-      <div className="handout-doc">
-        {/* Cover */}
-        <header style={{ marginBottom: 32, paddingBottom: 20, borderBottom: "2px solid rgb(var(--brand))" }}>
-          <p style={{ margin: 0, fontSize: 12, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "rgb(var(--brand))" }}>
-            Banoyah Learn · Course Handout
-          </p>
-          <h1 style={{ margin: "10px 0 6px", fontSize: 30, fontWeight: 800, lineHeight: 1.15, color: "rgb(var(--text))" }}>{course.title}</h1>
-          {course.category && <p style={{ margin: 0, fontSize: 14, color: "rgb(var(--muted))" }}>{course.category}</p>}
-          {course.description && <p style={{ marginTop: 12, fontSize: 14, lineHeight: 1.6, color: "rgb(var(--muted))" }}>{course.description}</p>}
-          <p style={{ marginTop: 14, fontSize: 12, color: "rgb(var(--faint))" }}>
-            {lessons.length} lesson{lessons.length === 1 ? "" : "s"} · Pass mark {course.pass_mark}%
-          </p>
-        </header>
-
-        {/* Lessons */}
-        {lessons.map((l, i) => (
-          <section key={l.id} style={{ marginBottom: 34 }}>
-            <p style={{ margin: "0 0 4px", fontSize: 12, fontWeight: 800, letterSpacing: ".04em", color: "rgb(var(--brand))" }}>LESSON {i + 1}</p>
-            <h2 style={{ margin: "0 0 8px", fontSize: 20, fontWeight: 800, color: "rgb(var(--text))" }}>{l.title}</h2>
-            {l.type === "text"
-              ? <LessonContent body={l.body} />
-              : <p style={{ fontSize: 14, color: "rgb(var(--muted))" }}>
-                  {l.type === "video" ? "Video lesson" : "PDF lesson"}{l.media_url ? ` — ${l.media_url}` : ""}
-                </p>}
-          </section>
-        ))}
-
-        <footer className="no-print" style={{ marginTop: 40, paddingTop: 16, borderTop: "1px solid #e2e8f0", fontSize: 12, color: "rgb(var(--faint))" }}>
-          Tip: in the print dialog, choose <strong>“Save as PDF”</strong> as the destination to download this handout.
-        </footer>
-      </div>
+      <iframe ref={frameRef} title="Course handout" srcDoc={html}
+        className="flex-1 w-full border-0 bg-white" />
     </div>
   );
 }
