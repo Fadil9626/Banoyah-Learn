@@ -9,6 +9,7 @@ import {
 import api, { getToken } from "../lib/api";
 import { StatusChip } from "./Courses";
 import ConfirmDialog from "../components/ConfirmDialog";
+import LessonContent from "../components/LessonContent";
 
 const TABS = [
   { key: "details", label: "Details", icon: PencilLine },
@@ -234,6 +235,7 @@ function LessonModal({ courseId, lesson, onClose, onSaved }) {
   const [f, setF] = useState({ title: lesson.title || "", type: lesson.type || "text", body: lesson.body || "", media_url: lesson.media_url || "" });
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState(false);
   const fileRef = useRef();
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
 
@@ -297,8 +299,29 @@ function LessonModal({ courseId, lesson, onClose, onSaved }) {
           </div>
           {f.type === "text" ? (
             <div>
-              <label className="label">Content</label>
-              <textarea className="input min-h-[140px] resize-y" value={f.body} onChange={(e) => set("body", e.target.value)} placeholder="Write the lesson content…" />
+              <div className="flex items-center justify-between mb-1">
+                <label className="label mb-0">Content</label>
+                <div className="flex gap-1 p-0.5 rounded-lg bg-surface-2 text-xs font-semibold">
+                  {[["write", "Write"], ["preview", "Preview"]].map(([k, l]) => {
+                    const on = (k === "preview") === preview;
+                    return (
+                      <button type="button" key={k} onClick={() => setPreview(k === "preview")}
+                        className={`px-2.5 py-1 rounded-md transition ${on ? "bg-brand/15 text-brand" : "text-muted hover:text-content"}`}>{l}</button>
+                    );
+                  })}
+                </div>
+              </div>
+              {preview ? (
+                <div className="input min-h-[140px] overflow-y-auto max-h-[45vh] bg-surface-2/40">
+                  {f.body.trim() ? <LessonContent body={f.body} /> : <p className="text-faint text-sm">Nothing to preview yet.</p>}
+                </div>
+              ) : (
+                <textarea className="input min-h-[140px] resize-y font-mono text-[13px] leading-relaxed" value={f.body}
+                  onChange={(e) => set("body", e.target.value)} placeholder="Write the lesson content… Markdown supported." />
+              )}
+              <p className="text-[11px] text-faint mt-1">
+                Markdown supported — <code className="font-mono">## heading</code>, <code className="font-mono">- list</code>, <code className="font-mono">**bold**</code>, and images <code className="font-mono">![caption](/lessons/name.jpg)</code>.
+              </p>
             </div>
           ) : (
             <div>

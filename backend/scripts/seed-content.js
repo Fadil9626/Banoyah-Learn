@@ -17,11 +17,13 @@ const IMG = {
   triangle: "/lessons/fire-triangle.svg",
   racepass: "/lessons/race-pass.svg",
   cia: "/lessons/cia-triad.svg",
-  gloves: "https://commons.wikimedia.org/wiki/Special:FilePath/Surgical_gloves.jpg?width=900",
-  sanitizer: "https://commons.wikimedia.org/wiki/Special:FilePath/Hand_sanitizer_dispenser.jpg?width=900",
-  handwash: "https://commons.wikimedia.org/wiki/Special:FilePath/Hand_washing_with_soap.jpg?width=900",
-  extinguisher: "https://commons.wikimedia.org/wiki/Special:FilePath/Fire_extinguisher.jpg?width=900",
-  padlock: "https://commons.wikimedia.org/wiki/Special:FilePath/Padlock.jpg?width=900",
+  // Self-hosted (served same-origin from frontend/public/lessons) — no external
+  // dependency, so lessons render fully offline. Sourced from Wikimedia Commons.
+  gloves: "/lessons/photo-gloves.jpg",
+  sanitizer: "/lessons/photo-sanitizer.jpg",
+  handwash: "/lessons/photo-handwash.jpg",
+  extinguisher: "/lessons/photo-extinguisher.jpg",
+  padlock: "/lessons/photo-padlock.jpg",
 };
 
 const COURSES = [
