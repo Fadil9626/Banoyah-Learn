@@ -46,13 +46,28 @@ export default function CourseHandout() {
   const { course, lessons = [] } = data;
 
   return (
-    <div style={{ ...LIGHT, background: "#fff", minHeight: "100vh", color: "rgb(var(--text))" }}>
+    <div className="handout-root" style={{
+      ...LIGHT, background: "#fff", minHeight: "100vh", color: "rgb(var(--text))",
+      colorScheme: "light", WebkitPrintColorAdjust: "exact", printColorAdjust: "exact",
+    }}>
       <style>{`
-        .handout-doc { max-width: 780px; margin: 0 auto; padding: 32px 32px 80px; }
+        /* Pin the light token set for the whole handout subtree (incl. LessonContent),
+           so text never resolves to the dark theme's near-white on white paper. */
+        .handout-root {
+          --bg:248 250 252; --surface:255 255 255; --surface-2:241 245 249; --border:226 232 240;
+          --text:15 23 42; --muted:100 116 139; --faint:148 163 184; --brand:79 70 229;
+          --brand-2:124 58 237; --brand-fg:255 255 255; --ok:16 185 129; --warn:217 119 6; --danger:225 29 72;
+        }
+        .handout-doc { max-width: 780px; margin: 0 auto; padding: 32px 32px 80px; color: #0f172a; }
         @media print {
+          /* The app pins html/body/#root to height:100% which clips print to one
+             page and yields blank sheets — release it so the whole doc flows. */
+          html, body, #root { height: auto !important; min-height: 0 !important; overflow: visible !important; background: #fff !important; color-scheme: light; }
           .no-print { display: none !important; }
+          .handout-doc { max-width: 100%; padding: 0; }
           h1, h2, h3 { break-after: avoid; }
-          figure, img { break-inside: avoid; }
+          figure, img { break-inside: avoid; max-width: 100% !important; }
+          * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           @page { margin: 16mm; }
         }
       `}</style>
