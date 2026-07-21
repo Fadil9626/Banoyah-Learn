@@ -178,6 +178,7 @@ function AiTab({ data, reload }) {
   const [key, setKey] = useState("");
   const [model, setModel] = useState(data.ai_model || "");
   const [baseUrl, setBaseUrl] = useState(data.ai_base_url || "http://localhost:11434");
+  const [maxQ, setMaxQ] = useState(data.ai_max_questions ?? 20);
   const [saving, setSaving] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
 
@@ -195,7 +196,7 @@ function AiTab({ data, reload }) {
   const save = async (extra = {}) => {
     setSaving(true);
     try {
-      const body = { ai_provider: provider, ai_model: model || meta.defaultModel || "", ai_base_url: baseUrl, ...extra };
+      const body = { ai_provider: provider, ai_model: model || meta.defaultModel || "", ai_base_url: baseUrl, ai_max_questions: maxQ, ...extra };
       if (key.trim()) body.ai_api_key = key.trim();
       await api("settings/ai", { method: "PUT", body: JSON.stringify(body) });
       setKey("");
@@ -246,6 +247,11 @@ function AiTab({ data, reload }) {
         <datalist id="ai-models">
           {(meta.models || []).map((m) => <option key={m} value={m} />)}
         </datalist>
+      </Field>
+
+      <Field label="Max quiz questions per generation" hint="Upper limit an author can request when generating a quiz with AI (1–50).">
+        <input className="input max-w-[140px]" type="number" min="1" max="50" value={maxQ}
+          onChange={(e) => setMaxQ(e.target.value)} />
       </Field>
 
       <div className="flex items-center gap-2">

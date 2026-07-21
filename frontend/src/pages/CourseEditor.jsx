@@ -425,9 +425,14 @@ function QuizTab({ course, reload }) {
 // AI question generation: draft → review/edit → add the batch.
 function GenerateModal({ courseId, onClose, onSaved }) {
   const [count, setCount] = useState(5);
+  const [maxQ, setMaxQ] = useState(20); // configurable ceiling (Settings → AI)
   const [stage, setStage] = useState("setup"); // setup | review
   const [loading, setLoading] = useState(false);
   const [drafts, setDrafts] = useState([]);
+
+  // Pull the admin-configured max so the picker never exceeds it.
+  useEffect(() => { api("settings").then((s) => setMaxQ(s?.ai?.ai_max_questions || 20)).catch(() => {}); }, []);
+  const presets = [3, 5, 8, 10, 15, 20, 30, 40, 50].filter((n) => n <= maxQ);
 
   const generate = async () => {
     setLoading(true);
@@ -479,16 +484,20 @@ function GenerateModal({ courseId, onClose, onSaved }) {
 
         {stage === "setup" ? (
           <div className="p-6">
-            <label className="label">How many questions?</label>
-            <div className="flex items-center gap-2 mt-1">
-              {[3, 5, 8, 10].map((n) => (
+            <label className="label">How many questions? <span className="text-faint font-normal">(up to {maxQ})</span></label>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              {presets.map((n) => (
                 <button key={n} onClick={() => setCount(n)}
                   className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-colors ${
                     count === n ? "border-brand text-brand bg-brand/10" : "border-line text-muted hover:text-content"}`}>
                   {n}
                 </button>
               ))}
+              <input type="number" min="1" max={maxQ} value={count}
+                onChange={(e) => setCount(Math.min(Math.max(parseInt(e.target.value, 10) || 1, 1), maxQ))}
+                className="input w-20 text-center" title="Custom amount" />
             </div>
+            <p className="text-[11px] text-faint mt-1.5">Change this limit in Settings → AI.</p>
             <p className="text-xs text-muted mt-4">The AI reads this course's lessons — including the text inside attached PDFs — and drafts multiple-choice questions grounded in that material. You'll be able to edit or drop any of them.</p>
             <div className="flex justify-end gap-2 mt-6">
               <button className="btn-ghost" onClick={onClose} disabled={loading}>Cancel</button>

@@ -4,7 +4,7 @@ import { toast } from "react-hot-toast";
 import {
   ArrowLeft, Loader2, CheckCircle2, Circle, FileText, Video, File,
   ChevronRight, Award, RotateCcw, X, Check, ListChecks, AlertTriangle,
-  Maximize2, Minimize2, Download,
+  Maximize2, Minimize2, Download, ExternalLink,
 } from "lucide-react";
 import api from "../lib/api";
 import LessonContent from "../components/LessonContent";
@@ -148,7 +148,7 @@ export default function CoursePlayer() {
             )}
             {lesson.type === "pdf" && (
               lesson.media_url
-                ? <a href={lesson.media_url} target="_blank" rel="noreferrer" className="btn-ghost"><File size={16} /> Open PDF</a>
+                ? <PdfLesson url={lesson.media_url} title={lesson.title} fs={fs} />
                 : <Empty label="No PDF URL set for this lesson." />
             )}
           </div>
@@ -178,6 +178,23 @@ export default function CoursePlayer() {
 }
 
 const Empty = ({ label }) => <div className="text-sm text-faint bg-surface-2 rounded-xl p-6 text-center">{label}</div>;
+
+// Inline PDF lesson: the document embeds right in the page via the browser's
+// native PDF viewer (same-origin iframe), with download + open-in-tab actions.
+function PdfLesson({ url, title, fs }) {
+  return (
+    <div className="rounded-xl border border-line overflow-hidden bg-surface-2">
+      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-line bg-surface">
+        <File size={15} className="text-brand flex-shrink-0" />
+        <span className="text-xs font-semibold text-content truncate flex-1">{title || "Document"}</span>
+        <a href={url} download className="btn-ghost px-2.5 py-1.5 text-xs" title="Download PDF"><Download size={14} /> Download</a>
+        <a href={url} target="_blank" rel="noreferrer" className="btn-ghost px-2.5 py-1.5 text-xs" title="Open in new tab"><ExternalLink size={14} /> Open</a>
+      </div>
+      <iframe src={`${url}#view=FitH`} title={title || "PDF lesson"}
+        className={`w-full bg-white ${fs ? "h-[82vh]" : "h-[72vh]"}`} />
+    </div>
+  );
+}
 
 // ── Quiz ──────────────────────────────────────────────────────────────────────
 function Quiz({ course, questions, onCancel, onDone }) {

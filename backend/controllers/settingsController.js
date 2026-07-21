@@ -50,6 +50,7 @@ const get = async (req, res) => {
         ai_base_url: aiCfg.baseUrl,
         ai_key_set:  ai.isConfigured(aiCfg),
         ai_key_env:  aiCfg.keyEnv, // provider/key set via .env (can't be cleared from the UI)
+        ai_max_questions: aiCfg.maxQuestions,
         providers:   ai.PROVIDERS_PUBLIC,
       },
       runtime: scheduler.getState(),
@@ -159,6 +160,10 @@ const updateAi = async (req, res) => {
       await setSetting(org, "ai_model", req.body.ai_model.trim());
     if (typeof req.body.ai_base_url === "string")
       await setSetting(org, "ai_base_url", req.body.ai_base_url.trim());
+    if (req.body.ai_max_questions != null && req.body.ai_max_questions !== "") {
+      const m = Math.min(Math.max(parseInt(req.body.ai_max_questions, 10) || 20, 1), 50);
+      await setSetting(org, "ai_max_questions", String(m));
+    }
     audit.record(req, "settings.ai");
     return get(req, res);
   } catch (e) { return res.status(500).json({ message: e.message }); }

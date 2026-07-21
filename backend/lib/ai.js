@@ -28,7 +28,7 @@ const DEFAULT_PROVIDER = "gemini";
 // Resolve provider/key/model/baseUrl for an org (env wins over per-org settings).
 async function config(orgId) {
   const { rows } = await pool.query(
-    "SELECT key, value FROM org_settings WHERE org_id=$1 AND key IN ('ai_provider','ai_api_key','ai_model','ai_base_url')", [orgId]
+    "SELECT key, value FROM org_settings WHERE org_id=$1 AND key IN ('ai_provider','ai_api_key','ai_model','ai_base_url','ai_max_questions')", [orgId]
   );
   const s = Object.fromEntries(rows.map((r) => [r.key, r.value]));
   const provider = (process.env.AI_PROVIDER || s.ai_provider || DEFAULT_PROVIDER).trim();
@@ -44,8 +44,11 @@ async function config(orgId) {
 
   const model = (process.env.AI_MODEL || s.ai_model || META[provider]?.defaultModel || "").trim();
   const baseUrl = (process.env.OLLAMA_URL || s.ai_base_url || "http://localhost:11434").trim();
+  // Admin-configurable ceiling for AI quiz generation (Settings → AI). Sane
+  // hard cap of 50 so a stray value can't blow up a request. Default 20.
+  const maxQuestions = Math.min(Math.max(parseInt(s.ai_max_questions, 10) || 20, 1), 50);
 
-  return { provider, apiKey, model, baseUrl, keyEnv: !!envKey };
+  return { provider, apiKey, model, baseUrl, keyEnv: !!envKey, maxQuestions };
 }
 
 // Ollama needs a reachable host rather than a key; others need a key.
@@ -162,7 +165,7 @@ function materialFrom(course, lessons) {
 
 // Generate `count` MCQs from the course. Returns { questions } or throws.
 async function generateQuestions(cfg, { course, lessons, count }) {
-  const n = Math.min(Math.max(parseInt(count, 10) || 5, 1), 15);
+  const n = Math.min(Math.max(parseInt(count, 10) || 5, 1), cfg.maxQuestions || 20);
   const material = materialFrom(course, lessons);
 
   const system =
