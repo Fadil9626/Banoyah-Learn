@@ -4,7 +4,7 @@ import { toast } from "react-hot-toast";
 import {
   ArrowLeft, Loader2, CheckCircle2, Circle, FileText, Video, File,
   ChevronRight, Award, RotateCcw, X, Check, ListChecks, AlertTriangle,
-  Maximize2, Minimize2,
+  Maximize2, Minimize2, Download,
 } from "lucide-react";
 import api from "../lib/api";
 import LessonContent from "../components/LessonContent";
@@ -75,7 +75,13 @@ export default function CoursePlayer() {
       <button onClick={() => navigate("/learn")} className="flex items-center gap-1.5 text-sm text-muted hover:text-content mb-4">
         <ArrowLeft size={16} /> My Learning
       </button>
-      <h1 className="text-2xl font-black text-content tracking-tight mb-1">{data.course.title}</h1>
+      <div className="flex items-start justify-between gap-3 mb-1">
+        <h1 className="text-2xl font-black text-content tracking-tight">{data.course.title}</h1>
+        <button onClick={() => window.open(`/learn/${id}/handout`, "_blank")}
+          className="btn-ghost flex-shrink-0" title="Download this course as a PDF handout">
+          <Download size={16} /> PDF
+        </button>
+      </div>
       {data.course.description && <p className="text-sm text-muted mb-6 max-w-2xl">{data.course.description}</p>}
 
       <div className="grid lg:grid-cols-[280px_1fr] gap-6">

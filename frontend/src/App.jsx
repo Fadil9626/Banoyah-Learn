@@ -25,6 +25,7 @@ const Verify         = lazy(() => import("./pages/Verify"));
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
 const ResetPassword  = lazy(() => import("./pages/ResetPassword"));
 const Sso            = lazy(() => import("./pages/Sso"));
+const CourseHandout  = lazy(() => import("./pages/CourseHandout"));
 
 function PageLoader() {
   return (
@@ -55,6 +56,15 @@ function ProtectedLayout({ allowedRoles }) {
   );
 }
 
+// Authenticated but chrome-free — for standalone full-page views like the
+// printable course handout (no sidebar/header, so it prints cleanly).
+function RequireAuthBare({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) return <PageLoader />;
+  if (!user) return <Navigate to="/login" replace />;
+  return children;
+}
+
 // Keep already-authenticated users out of the login/forgot screens, sending them
 // back to where they were headed (or the dashboard).
 function PublicOnly({ children }) {
@@ -81,6 +91,9 @@ export default function App() {
         <Route path="/reset/:token" element={<ResetPassword />} />
         <Route path="/sso/:token" element={<Sso />} />
         <Route path="/verify/:serial" element={<Verify />} />
+
+        {/* Authenticated, chrome-free printable handout */}
+        <Route path="/learn/:id/handout" element={<RequireAuthBare><CourseHandout /></RequireAuthBare>} />
 
         {/* Anyone signed in (Layout mounted once) */}
         <Route element={<ProtectedLayout />}>
