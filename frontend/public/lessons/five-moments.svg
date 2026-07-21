@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 440" font-family="ui-sans-serif,system-ui,Segoe UI,Roboto,Arial" role="img" aria-label="WHO My 5 Moments for Hand Hygiene">
+  <rect width="640" height="440" fill="#ffffff"/>
+  <text x="320" y="34" text-anchor="middle" font-size="18" font-weight="800" fill="#4F46E5">My 5 Moments for Hand Hygiene</text>
+
+  <!-- patient + caregiver glyph (center) -->
+  <g transform="translate(320,240)">
+    <ellipse cx="0" cy="70" rx="120" ry="30" fill="#F1F5F9"/>
+    <circle cx="-30" cy="-10" r="26" fill="#C7D2FE"/>
+    <rect x="-52" y="18" width="44" height="52" rx="18" fill="#C7D2FE"/>
+    <circle cx="40" cy="-4" r="22" fill="#A5B4FC"/>
+    <rect x="20" y="22" width="40" height="46" rx="16" fill="#A5B4FC"/>
+    <text x="0" y="112" text-anchor="middle" font-size="12" fill="#64748B">patient zone</text>
+  </g>
+
+  <!-- 5 numbered moments around -->
+  <g text-anchor="middle" font-family="ui-sans-serif,system-ui,Segoe UI,Roboto,Arial">
+    <g transform="translate(120,120)">
+      <circle r="30" fill="#4F46E5"/><text y="8" font-size="26" font-weight="800" fill="#fff">1</text>
+      <text x="0" y="52" font-size="12.5" font-weight="700" fill="#1E293B">BEFORE</text>
+      <text x="0" y="68" font-size="11.5" fill="#475569">touching a patient</text>
+    </g>
+    <g transform="translate(320,96)">
+      <circle r="30" fill="#4F46E5"/><text y="8" font-size="26" font-weight="800" fill="#fff">2</text>
+      <text x="0" y="52" font-size="12.5" font-weight="700" fill="#1E293B">BEFORE</text>
+      <text x="0" y="68" font-size="11.5" fill="#475569">a clean/aseptic task</text>
+    </g>
+    <g transform="translate(520,120)">
+      <circle r="30" fill="#DC2626"/><text y="8" font-size="26" font-weight="800" fill="#fff">3</text>
+      <text x="0" y="52" font-size="12.5" font-weight="700" fill="#1E293B">AFTER</text>
+      <text x="0" y="68" font-size="11.5" fill="#475569">body-fluid exposure</text>
+    </g>
+    <g transform="translate(150,352)">
+      <circle r="30" fill="#DC2626"/><text y="8" font-size="26" font-weight="800" fill="#fff">4</text>
+      <text x="0" y="52" font-size="12.5" font-weight="700" fill="#1E293B">AFTER</text>
+      <text x="0" y="68" font-size="11.5" fill="#475569">touching a patient</text>
+    </g>
+    <g transform="translate(500,352)">
+      <circle r="30" fill="#DC2626"/><text y="8" font-size="26" font-weight="800" fill="#fff">5</text>
+      <text x="0" y="52" font-size="12.5" font-weight="700" fill="#1E293B">AFTER</text>
+      <text x="0" y="68" font-size="11.5" fill="#475569">touching surroundings</text>
+    </g>
+  </g>
+</svg>

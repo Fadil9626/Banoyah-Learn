@@ -6,6 +6,7 @@ import {
   ChevronRight, Award, RotateCcw, X, Check, ListChecks, AlertTriangle,
 } from "lucide-react";
 import api from "../lib/api";
+import LessonContent from "../components/LessonContent";
 
 const ICON = { text: FileText, video: Video, pdf: File };
 
@@ -107,9 +108,7 @@ export default function CoursePlayer() {
           <h2 className="text-xl font-bold text-content mb-4">{lesson.title}</h2>
 
           <div className="flex-1">
-            {lesson.type === "text" && (
-              <div className="prose-sm text-content/90 whitespace-pre-wrap leading-relaxed">{lesson.body || "—"}</div>
-            )}
+            {lesson.type === "text" && <LessonContent body={lesson.body} />}
             {lesson.type === "video" && (
               lesson.media_url
                 ? <video src={lesson.media_url} controls className="w-full rounded-xl bg-black" />

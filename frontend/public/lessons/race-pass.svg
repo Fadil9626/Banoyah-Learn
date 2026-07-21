@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 430" font-family="ui-sans-serif,system-ui,Segoe UI,Roboto,Arial" role="img" aria-label="RACE response and PASS extinguisher technique">
+  <rect width="640" height="430" fill="#ffffff"/>
+  <!-- RACE column -->
+  <text x="165" y="34" text-anchor="middle" font-size="17" font-weight="800" fill="#4F46E5">RACE — if you find a fire</text>
+  <g font-size="13.5">
+    <g transform="translate(40,58)">
+      <rect width="250" height="60" rx="12" fill="#EEF2FF" stroke="#C7D2FE"/>
+      <text x="18" y="26" font-size="16" font-weight="800" fill="#4F46E5">R</text>
+      <text x="42" y="26" font-weight="700" fill="#1E293B">Rescue</text>
+      <text x="42" y="46" fill="#475569">move anyone in danger</text>
+    </g>
+    <g transform="translate(40,128)">
+      <rect width="250" height="60" rx="12" fill="#EEF2FF" stroke="#C7D2FE"/>
+      <text x="18" y="26" font-size="16" font-weight="800" fill="#4F46E5">A</text>
+      <text x="42" y="26" font-weight="700" fill="#1E293B">Alarm</text>
+      <text x="42" y="46" fill="#475569">raise the alarm, call for help</text>
+    </g>
+    <g transform="translate(40,198)">
+      <rect width="250" height="60" rx="12" fill="#EEF2FF" stroke="#C7D2FE"/>
+      <text x="18" y="26" font-size="16" font-weight="800" fill="#4F46E5">C</text>
+      <text x="42" y="26" font-weight="700" fill="#1E293B">Confine</text>
+      <text x="42" y="46" fill="#475569">close doors to contain it</text>
+    </g>
+    <g transform="translate(40,268)">
+      <rect width="250" height="60" rx="12" fill="#EEF2FF" stroke="#C7D2FE"/>
+      <text x="18" y="26" font-size="16" font-weight="800" fill="#4F46E5">E</text>
+      <text x="42" y="26" font-weight="700" fill="#1E293B">Extinguish / Evacuate</text>
+      <text x="42" y="46" fill="#475569">only if small &amp; safe — else leave</text>
+    </g>
+  </g>
+
+  <line x1="320" y1="58" x2="320" y2="330" stroke="#E2E8F0" stroke-width="2"/>
+
+  <!-- PASS column -->
+  <text x="475" y="34" text-anchor="middle" font-size="17" font-weight="800" fill="#B91C1C">PASS — using an extinguisher</text>
+  <g font-size="13.5">
+    <g transform="translate(350,58)">
+      <rect width="250" height="60" rx="12" fill="#FEF2F2" stroke="#FECACA"/>
+      <text x="18" y="26" font-size="16" font-weight="800" fill="#DC2626">P</text>
+      <text x="42" y="26" font-weight="700" fill="#1E293B">Pull</text>
+      <text x="42" y="46" fill="#475569">pull the safety pin</text>
+    </g>
+    <g transform="translate(350,128)">
+      <rect width="250" height="60" rx="12" fill="#FEF2F2" stroke="#FECACA"/>
+      <text x="18" y="26" font-size="16" font-weight="800" fill="#DC2626">A</text>
+      <text x="42" y="26" font-weight="700" fill="#1E293B">Aim</text>
+      <text x="42" y="46" fill="#475569">aim low, at the base of the fire</text>
+    </g>
+    <g transform="translate(350,198)">
+      <rect width="250" height="60" rx="12" fill="#FEF2F2" stroke="#FECACA"/>
+      <text x="18" y="26" font-size="16" font-weight="800" fill="#DC2626">S</text>
+      <text x="42" y="26" font-weight="700" fill="#1E293B">Squeeze</text>
+      <text x="42" y="46" fill="#475569">squeeze the handle</text>
+    </g>
+    <g transform="translate(350,268)">
+      <rect width="250" height="60" rx="12" fill="#FEF2F2" stroke="#FECACA"/>
+      <text x="18" y="26" font-size="16" font-weight="800" fill="#DC2626">S</text>
+      <text x="42" y="26" font-weight="700" fill="#1E293B">Sweep</text>
+      <text x="42" y="46" fill="#475569">sweep side to side</text>
+    </g>
+  </g>
+  <text x="320" y="360" text-anchor="middle" font-size="12.5" fill="#64748B">Never let a fire get between you and your exit.</text>
+</svg>

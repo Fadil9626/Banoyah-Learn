@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" font-family="ui-sans-serif,system-ui,Segoe UI,Roboto,Arial" role="img" aria-label="The fire triangle: heat, fuel and oxygen">
+  <rect width="640" height="420" fill="#ffffff"/>
+  <text x="320" y="38" text-anchor="middle" font-size="18" font-weight="800" fill="#4F46E5">The Fire Triangle</text>
+  <!-- triangle -->
+  <polygon points="320,80 545,360 95,360" fill="#FEF2F2" stroke="#F87171" stroke-width="3" stroke-linejoin="round"/>
+  <!-- flame in centre -->
+  <g transform="translate(320,248)">
+    <path d="M0,-46 C26,-16 34,6 16,30 C34,24 40,2 34,-16 C52,10 48,52 8,64 C-40,50 -34,-4 0,-46 Z" fill="#F97316"/>
+    <path d="M2,-8 C16,6 14,26 0,36 C-18,26 -16,4 2,-8 Z" fill="#FACC15"/>
+    <text x="0" y="92" text-anchor="middle" font-size="15" font-weight="800" fill="#B91C1C">FIRE</text>
+  </g>
+  <!-- side labels -->
+  <g text-anchor="middle" font-weight="700">
+    <text x="320" y="66" font-size="15" fill="#1E293B">HEAT</text>
+    <g transform="translate(470,300)"><text font-size="15" fill="#1E293B">OXYGEN</text></g>
+    <g transform="translate(170,300)"><text font-size="15" fill="#1E293B">FUEL</text></g>
+  </g>
+  <text x="320" y="398" text-anchor="middle" font-size="12.5" fill="#64748B">Remove any one side and the fire goes out.</text>
+</svg>

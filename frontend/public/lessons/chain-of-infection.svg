@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" font-family="ui-sans-serif,system-ui,Segoe UI,Roboto,Arial" role="img" aria-label="The six links in the chain of infection">
+  <defs>
+    <marker id="ah" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#6366F1"/>
+    </marker>
+  </defs>
+  <rect width="640" height="420" fill="#ffffff"/>
+  <text x="320" y="205" text-anchor="middle" font-size="18" font-weight="800" fill="#4F46E5">Chain of</text>
+  <text x="320" y="228" text-anchor="middle" font-size="18" font-weight="800" fill="#4F46E5">Infection</text>
+  <g>
+    <!-- ring arrows (clockwise) -->
+    <path d="M362,92 A150,150 0 0 1 470,190" fill="none" stroke="#6366F1" stroke-width="2.5" marker-end="url(#ah)"/>
+    <path d="M470,232 A150,150 0 0 1 362,330" fill="none" stroke="#6366F1" stroke-width="2.5" marker-end="url(#ah)"/>
+    <path d="M278,330 A150,150 0 0 1 170,232" fill="none" stroke="#6366F1" stroke-width="2.5" marker-end="url(#ah)"/>
+    <path d="M170,190 A150,150 0 0 1 278,92" fill="none" stroke="#6366F1" stroke-width="2.5" marker-end="url(#ah)"/>
+  </g>
+  <g font-size="12.5" font-weight="600" fill="#1E293B" text-anchor="middle">
+    <!-- node 1 top -->
+    <circle cx="320" cy="66" r="48" fill="#EEF2FF" stroke="#C7D2FE" stroke-width="2"/>
+    <text x="320" y="60">Infectious</text><text x="320" y="76">agent</text>
+    <!-- node 2 upper-right -->
+    <circle cx="510" cy="150" r="48" fill="#EEF2FF" stroke="#C7D2FE" stroke-width="2"/>
+    <text x="510" y="154">Reservoir</text>
+    <!-- node 3 lower-right -->
+    <circle cx="510" cy="272" r="48" fill="#EEF2FF" stroke="#C7D2FE" stroke-width="2"/>
+    <text x="510" y="266">Portal of</text><text x="510" y="282">exit</text>
+    <!-- node 4 bottom -->
+    <circle cx="320" cy="356" r="48" fill="#EEF2FF" stroke="#C7D2FE" stroke-width="2"/>
+    <text x="320" y="350">Mode of</text><text x="320" y="366">transmission</text>
+    <!-- node 5 lower-left -->
+    <circle cx="130" cy="272" r="48" fill="#EEF2FF" stroke="#C7D2FE" stroke-width="2"/>
+    <text x="130" y="266">Portal of</text><text x="130" y="282">entry</text>
+    <!-- node 6 upper-left -->
+    <circle cx="130" cy="150" r="48" fill="#EEF2FF" stroke="#C7D2FE" stroke-width="2"/>
+    <text x="130" y="146">Susceptible</text><text x="130" y="162">host</text>
+  </g>
+</svg>
