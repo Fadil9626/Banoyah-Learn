@@ -366,6 +366,7 @@ function QuizTab({ course, reload }) {
   const [editing, setEditing] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [confirmDel, setConfirmDel] = useState(null); // question pending delete
+  const [confirmClear, setConfirmClear] = useState(false); // clear-all pending
   const [busy, setBusy] = useState(false);
   const qs = course.questions;
 
@@ -376,14 +377,31 @@ function QuizTab({ course, reload }) {
     finally { setBusy(false); }
   };
 
+  const clearAll = async () => {
+    setBusy(true);
+    try { const { deleted } = await api(`courses/${course.id}/questions`, { method: "DELETE" }); toast.success(`Cleared ${deleted} question${deleted === 1 ? "" : "s"}`); setConfirmClear(false); reload(); }
+    catch (e) { toast.error(e.message); }
+    finally { setBusy(false); }
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-3">
-        <p className="text-sm text-muted">Learners must score at least <strong className="text-content">{course.pass_mark}%</strong> to pass and earn a certificate.</p>
-        <button onClick={() => setGenerating(true)} className="btn-ghost flex-shrink-0 whitespace-nowrap"
-          style={{ color: "rgb(var(--brand))" }}>
-          <Sparkles size={15} /> Generate with AI
-        </button>
+        <p className="text-sm text-muted">
+          Learners must score at least <strong className="text-content">{course.pass_mark}%</strong> to pass and earn a certificate.
+          {qs.length > 0 && <> · <span className="text-content font-semibold">{qs.length} question{qs.length === 1 ? "" : "s"}</span></>}
+        </p>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {qs.length > 0 && (
+            <button onClick={() => setConfirmClear(true)} className="btn-ghost whitespace-nowrap text-danger">
+              <Trash2 size={15} /> Clear all
+            </button>
+          )}
+          <button onClick={() => setGenerating(true)} className="btn-ghost whitespace-nowrap"
+            style={{ color: "rgb(var(--brand))" }}>
+            <Sparkles size={15} /> Generate with AI
+          </button>
+        </div>
       </div>
       {qs.length === 0 && <div className="card p-10 text-center text-muted">No questions yet — add the first one below.</div>}
       {qs.map((q, i) => (
@@ -418,6 +436,11 @@ function QuizTab({ course, reload }) {
         title="Delete question"
         message={confirmDel ? <>This permanently removes the question <strong className="text-content">“{confirmDel.prompt}”</strong>. This can’t be undone.</> : null}
         onConfirm={remove} onCancel={() => setConfirmDel(null)} />
+
+      <ConfirmDialog open={confirmClear} busy={busy} confirmLabel="Clear all"
+        title="Clear all questions"
+        message={<>This permanently removes all <strong className="text-content">{qs.length}</strong> question{qs.length === 1 ? "" : "s"} from this quiz. This can’t be undone.</>}
+        onConfirm={clearAll} onCancel={() => setConfirmClear(false)} />
     </div>
   );
 }
@@ -429,6 +452,7 @@ function GenerateModal({ courseId, onClose, onSaved }) {
   const [stage, setStage] = useState("setup"); // setup | review
   const [loading, setLoading] = useState(false);
   const [drafts, setDrafts] = useState([]);
+  const [replace, setReplace] = useState(false); // replace the whole quiz vs append
 
   // Pull the admin-configured max so the picker never exceeds it.
   useEffect(() => { api("settings").then((s) => setMaxQ(s?.ai?.ai_max_questions || 20)).catch(() => {}); }, []);
@@ -457,9 +481,9 @@ function GenerateModal({ courseId, onClose, onSaved }) {
     setLoading(true);
     try {
       const { added } = await api(`courses/${courseId}/questions/bulk`, {
-        method: "POST", body: JSON.stringify({ questions: chosen }),
+        method: "POST", body: JSON.stringify({ questions: chosen, replace }),
       });
-      toast.success(`${added} question${added === 1 ? "" : "s"} added`);
+      toast.success(replace ? `Quiz replaced with ${added} question${added === 1 ? "" : "s"}` : `${added} question${added === 1 ? "" : "s"} added`);
       onSaved();
     } catch (e) { toast.error(e.message); }
     finally { setLoading(false); }
@@ -536,12 +560,19 @@ function GenerateModal({ courseId, onClose, onSaved }) {
                 </div>
               ))}
             </div>
-            <div className="flex items-center justify-between gap-2 p-4 border-t border-line">
-              <span className="text-xs text-muted">{keepCount} of {drafts.length} selected · tap the green circle to set the correct answer</span>
+            <div className="flex items-center justify-between gap-2 p-4 border-t border-line flex-wrap">
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs text-muted">{keepCount} of {drafts.length} selected · tap the green circle to set the correct answer</span>
+                <label className="flex items-center gap-2 text-xs font-medium text-content cursor-pointer select-none">
+                  <input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} className="accent-brand w-3.5 h-3.5" />
+                  Replace the existing quiz <span className="text-faint font-normal">(instead of adding to it)</span>
+                </label>
+              </div>
               <div className="flex gap-2">
                 <button className="btn-ghost" onClick={() => setStage("setup")} disabled={loading}>Back</button>
                 <button onClick={save} disabled={loading || !keepCount} className="btn-brand">
-                  {loading ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} Add {keepCount} question{keepCount === 1 ? "" : "s"}
+                  {loading ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+                  {replace ? "Replace with" : "Add"} {keepCount} question{keepCount === 1 ? "" : "s"}
                 </button>
               </div>
             </div>

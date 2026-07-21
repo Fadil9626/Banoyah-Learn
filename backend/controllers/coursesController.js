@@ -274,6 +274,10 @@ const addQuestionsBulk = async (req, res) => {
   if (!clean.length) return res.status(400).json({ message: "No valid questions to add" });
   try {
     if (!(await ownedCourse(req.user.org_id, req.params.id))) return res.status(404).json({ message: "Course not found" });
+    // replace: swap the whole quiz instead of appending (stops regenerations
+    // from piling up on top of each other).
+    if (req.body.replace === true)
+      await pool.query("DELETE FROM quiz_questions WHERE course_id=$1", [req.params.id]);
     let sort = await nextSort("quiz_questions", req.params.id);
     const out = [];
     for (const q of clean) {
@@ -288,9 +292,20 @@ const addQuestionsBulk = async (req, res) => {
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 
+// ── DELETE /api/courses/:id/questions ────────────────────────────────────────
+// Clear the entire quiz for a course.
+const clearQuestions = async (req, res) => {
+  try {
+    if (!(await ownedCourse(req.user.org_id, req.params.id))) return res.status(404).json({ message: "Course not found" });
+    const { rowCount } = await pool.query("DELETE FROM quiz_questions WHERE course_id=$1", [req.params.id]);
+    await touch(req.params.id);
+    return res.json({ deleted: rowCount });
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+};
+
 module.exports = {
   listCourses, getCourse, createCourse, updateCourse, deleteCourse, setStatus,
   addLesson, updateLesson, deleteLesson, reorderLessons,
   addQuestion, updateQuestion, deleteQuestion,
-  generateQuestions, addQuestionsBulk,
+  generateQuestions, addQuestionsBulk, clearQuestions,
 };
