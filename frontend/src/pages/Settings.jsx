@@ -24,10 +24,10 @@ export default function Settings() {
   return (
     <div>
       <PageHeader title="Settings" subtitle="Email delivery and re-certification reminders." />
-      <div className="flex items-center gap-1 mb-6 border-b border-line">
+      <div className="flex items-center gap-1 mb-6 border-b border-line overflow-x-auto">
         {TABS.map(({ key, label, icon: Icon }) => (
           <button key={key} onClick={() => setTab(key)}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition ${
+            className={`flex items-center gap-2 px-3 sm:px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition shrink-0 whitespace-nowrap ${
               tab === key ? "text-brand border-brand" : "text-muted border-transparent hover:text-content"
             }`}>
             <Icon size={15} /> {label}
