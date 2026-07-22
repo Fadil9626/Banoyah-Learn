@@ -261,7 +261,7 @@ export default function Certificates() {
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-4 mt-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4 mt-6">
                       <Field label="Email" value={detail.email} />
                       <Field label="Staff / External ID" value={detail.external_id || "—"} />
                       <Field label="Score" value={`${detail.score}%`} />

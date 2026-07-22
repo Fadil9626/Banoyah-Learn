@@ -292,7 +292,7 @@ function AddModal({ onClose, onSaved }) {
             <label className="label">Email</label>
             <input className="input" type="email" value={f.email} onChange={(e) => set("email", e.target.value)} placeholder="jane@example.com" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="label">Role</label>
               <select className="input" value={f.role} onChange={(e) => set("role", e.target.value)}>
@@ -307,7 +307,7 @@ function AddModal({ onClose, onSaved }) {
               <input className="input" value={f.job_title} onChange={(e) => set("job_title", e.target.value)} placeholder="Lab technician" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="label">Team <span className="text-faint font-normal">(unit/facility)</span></label>
               <input className="input" value={f.team} onChange={(e) => set("team", e.target.value)} placeholder="District A" />

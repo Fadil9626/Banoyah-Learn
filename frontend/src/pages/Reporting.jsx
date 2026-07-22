@@ -59,11 +59,11 @@ export default function Reporting() {
 
       {/* Per-course */}
       <h2 className="text-sm font-bold text-content mt-8 mb-3 flex items-center gap-2"><BookOpen size={16} className="text-brand" /> By course</h2>
-      <div className="card overflow-hidden">
+      <div className="card overflow-x-auto">
         {data.by_course.length === 0 ? (
           <div className="py-12 text-center text-muted">No published courses yet.</div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full text-sm min-w-[600px] sm:min-w-0">
             <thead>
               <tr className="text-left text-[11px] font-bold uppercase tracking-wide text-faint border-b border-line">
                 <th className="px-5 py-3">Course</th>
@@ -110,8 +110,8 @@ export default function Reporting() {
               <Stat icon={AlertTriangle} tint="danger" value={comp.totals.overdue} label="Overdue" />
             </div>
 
-            <div className="card overflow-hidden mt-4">
-              <table className="w-full text-sm">
+            <div className="card overflow-x-auto mt-4">
+              <table className="w-full text-sm min-w-[600px] sm:min-w-0">
                 <thead>
                   <tr className="text-left text-[11px] font-bold uppercase tracking-wide text-faint border-b border-line">
                     <th className="px-5 py-3">Course</th>

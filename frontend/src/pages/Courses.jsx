@@ -130,8 +130,8 @@ function CreateModal({ onClose, onCreated }) {
             <label className="label">Description</label>
             <textarea className="input min-h-[80px] resize-y" value={f.description} onChange={(e) => set("description", e.target.value)} placeholder="What this course covers…" />
           </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="col-span-1">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="col-span-2 sm:col-span-1">
               <label className="label">Category</label>
               <input className="input" value={f.category} onChange={(e) => set("category", e.target.value)} placeholder="Safety" />
             </div>

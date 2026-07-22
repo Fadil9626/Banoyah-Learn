@@ -72,10 +72,10 @@ export default function CourseEditor() {
         </button>
       </div>
 
-      <div className="flex items-center gap-1 mb-6 border-b border-line">
+      <div className="flex items-center gap-1 mb-6 border-b border-line overflow-x-auto">
         {TABS.map(({ key, label, icon: Icon }) => (
           <button key={key} onClick={() => setTab(key)}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition ${
+            className={`flex items-center gap-2 px-3 sm:px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition shrink-0 whitespace-nowrap ${
               tab === key ? "text-brand border-brand" : "text-muted border-transparent hover:text-content"
             }`}>
             <Icon size={15} /> {label}
@@ -125,8 +125,8 @@ function DetailsTab({ course, onSaved }) {
         <label className="label">Description</label>
         <textarea className="input min-h-[100px] resize-y" value={f.description} onChange={(e) => set("description", e.target.value)} />
       </div>
-      <div className="grid grid-cols-3 gap-4">
-        <div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <div className="col-span-2 sm:col-span-1">
           <label className="label">Category</label>
           <input className="input" value={f.category} onChange={(e) => set("category", e.target.value)} />
         </div>

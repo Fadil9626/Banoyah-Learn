@@ -86,16 +86,16 @@ function EmailTab({ data, reload }) {
       <Row title="Enable outbound email" desc="Required to send re-certification reminders.">
         <Toggle on={f.mail_enabled} onClick={() => set("mail_enabled", !f.mail_enabled)} />
       </Row>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Field label="SMTP host" hint="e.g. smtp.gmail.com"><input className="input" value={f.smtp_host} onChange={(e) => set("smtp_host", e.target.value)} placeholder="smtp.gmail.com" /></Field>
         <Field label="Port" hint="587 (STARTTLS) or 465 (SSL)"><input className="input" type="number" value={f.smtp_port} onChange={(e) => set("smtp_port", e.target.value)} /></Field>
       </div>
       <Row title="Use SSL" desc="On for port 465, off for 587."><Toggle on={f.smtp_secure} onClick={() => set("smtp_secure", !f.smtp_secure)} /></Row>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Field label="Username" hint="Usually the full email"><input className="input" value={f.smtp_user} onChange={(e) => set("smtp_user", e.target.value)} placeholder="you@gmail.com" /></Field>
         <Field label="Password" hint={data.smtp_pass_set ? "Saved — leave blank to keep" : "Gmail: use an App Password"}><input className="input" type="password" value={f.smtp_pass} onChange={(e) => set("smtp_pass", e.target.value)} placeholder={data.smtp_pass_set ? "•••••••• (saved)" : "App password"} /></Field>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Field label="From address" hint="Defaults to username"><input className="input" value={f.mail_from} onChange={(e) => set("mail_from", e.target.value)} placeholder="you@gmail.com" /></Field>
         <Field label="From name" hint="Shown as the sender"><input className="input" value={f.mail_from_name} onChange={(e) => set("mail_from_name", e.target.value)} /></Field>
       </div>
