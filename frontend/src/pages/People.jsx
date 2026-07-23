@@ -280,7 +280,7 @@ function AddModal({ onClose, onSaved }) {
     <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
       <div className="card w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-5">
-          <h3 className="font-bold text-content text-lg">Add person</h3>
+          <h3 className="font-bold text-content text-lg">Add staff</h3>
           <button className="text-faint hover:text-content" onClick={onClose}><X size={18} /></button>
         </div>
         <form onSubmit={save} className="space-y-4">
@@ -321,7 +321,7 @@ function AddModal({ onClose, onSaved }) {
           <div className="flex gap-3 pt-1">
             <button type="button" className="btn-ghost flex-1" onClick={onClose}>Cancel</button>
             <button type="submit" className="btn-brand flex-1" disabled={busy}>
-              {busy ? <Loader2 size={16} className="animate-spin" /> : "Add person"}
+              {busy ? <Loader2 size={16} className="animate-spin" /> : "Add staff"}
             </button>
           </div>
         </form>
