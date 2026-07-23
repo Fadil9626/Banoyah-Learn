@@ -12,7 +12,7 @@ import ThemeToggle from "./ThemeToggle";
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/learn", label: "My Learning", icon: GraduationCap },
-  { to: "/people", label: "People", icon: Users, roles: ["admin", "instructor", "manager"] },
+  { to: "/people", label: "Staff", icon: Users, roles: ["admin", "instructor", "manager"] },
   { to: "/courses", label: "Courses", icon: BookOpen, roles: ["admin", "instructor"] },
   { to: "/certificates", label: "Certificates", icon: Award, roles: ["admin", "instructor"] },
   { to: "/reporting", label: "Reporting", icon: BarChart3, roles: ["admin", "instructor", "manager"] },

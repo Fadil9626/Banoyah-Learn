@@ -9,7 +9,7 @@ import { useAuth } from "../context/AuthContext";
 import PageHeader from "../components/PageHeader";
 
 const ACTION_LABEL = {
-  "user.login": "signed in", "user.create": "added a person", "user.import": "imported people",
+  "user.login": "signed in", "user.create": "added a staff member", "user.import": "imported staff",
   "user.password_change": "changed their password", "user.password_reset": "reset a password",
   "course.publish": "published", "course.unpublish": "unpublished", "assignment.create": "assigned a course",
   "certificate.issue": "earned a certificate for", "apikey.create": "created an API key",

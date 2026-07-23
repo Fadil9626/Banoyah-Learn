@@ -6,7 +6,7 @@ import PageHeader from "../components/PageHeader";
 
 const ACTION_META = {
   "user.login":       { label: "Signed in",            tint: "brand-2" },
-  "user.create":      { label: "Added person",         tint: "brand" },
+  "user.create":      { label: "Added staff member",   tint: "brand" },
   "user.import":      { label: "Imported people",      tint: "brand" },
   "course.publish":   { label: "Published course",     tint: "ok" },
   "course.unpublish": { label: "Unpublished course",   tint: "muted" },
@@ -55,7 +55,7 @@ export default function AuditLog() {
     if (!r.details) return "";
     const d = r.details;
     if (r.action === "user.import") return `${d.created} created, ${d.skipped} skipped${d.errors ? `, ${d.errors} errors` : ""}`;
-    if (r.action === "assignment.create") return `${d.assigned} ${d.assigned === 1 ? "person" : "people"}${d.due_date ? ` · due ${d.due_date}` : ""}`;
+    if (r.action === "assignment.create") return `${d.assigned} staff ${d.assigned === 1 ? "member" : "members"}${d.due_date ? ` · due ${d.due_date}` : ""}`;
     if (r.action === "certificate.issue") return `${d.score}% · ${d.serial}`;
     if (r.action === "user.create") return d.role;
     return "";

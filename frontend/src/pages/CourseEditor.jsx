@@ -742,11 +742,11 @@ function AssignModal({ courseId, onClose, onDone }) {
   });
 
   const submit = async () => {
-    if (!picked.size) return toast.error("Pick at least one person");
+    if (!picked.size) return toast.error("Pick at least one staff member");
     setBusy(true);
     try {
       const r = await api("assignments", { method: "POST", body: JSON.stringify({ course_id: courseId, user_ids: [...picked], due_date: due || null }) });
-      toast.success(`Assigned to ${r.assigned} ${r.assigned === 1 ? "person" : "people"}`);
+      toast.success(`Assigned to ${r.assigned} staff ${r.assigned === 1 ? "member" : "members"}`);
       onDone();
     } catch (e) { toast.error(e.message); }
     finally { setBusy(false); }
@@ -764,7 +764,7 @@ function AssignModal({ courseId, onClose, onDone }) {
           <input type="date" className="input" value={due} onChange={(e) => setDue(e.target.value)} />
         </div>
         <div className="flex items-center justify-between mb-2">
-          <label className="label mb-0">People</label>
+          <label className="label mb-0">Staff</label>
           {learners.length > 0 && (
             <button onClick={toggleAllLearners} className="text-xs font-semibold text-brand">
               {allLearnersPicked ? "Clear learners" : "Select all learners"}
@@ -775,7 +775,7 @@ function AssignModal({ courseId, onClose, onDone }) {
           {people == null ? (
             <div className="py-8 grid place-items-center text-muted"><Loader2 className="animate-spin" /></div>
           ) : people.length === 0 ? (
-            <p className="text-sm text-muted py-6 text-center">No people yet — add them under People.</p>
+            <p className="text-sm text-muted py-6 text-center">No staff yet — add them under Staff.</p>
           ) : people.map((p) => (
             <button key={p.id} onClick={() => toggle(p.id)}
               className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-surface-2 transition text-left">

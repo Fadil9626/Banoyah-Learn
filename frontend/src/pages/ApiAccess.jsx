@@ -257,7 +257,7 @@ function Docs() {
         &nbsp;&nbsp;-H "X-API-Key: blk_…"
       </div>
       <p className="text-[11px] text-faint mt-3">
-        <code className="font-mono">external_id</code> is the person's ID in your system — set it on each learner under People.
+        <code className="font-mono">external_id</code> is the person's ID in your system — set it on each learner under Staff.
       </p>
     </div>
   );

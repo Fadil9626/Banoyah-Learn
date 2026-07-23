@@ -33,13 +33,13 @@ export default function People() {
 
   return (
     <div>
-      <PageHeader title="People" subtitle={canManage ? "Learners, instructors, managers and admins in your organization." : "Your team."}>
+      <PageHeader title="Staff" subtitle={canManage ? "Everyone in your organization who learns, teaches or administers." : "Your team."}>
         {canManage && <>
           <button className="btn-ghost" onClick={() => setImporting(true)}>
             <FileUp size={16} /> Import CSV
           </button>
           <button className="btn-brand" onClick={() => setAdding(true)}>
-            <UserPlus size={16} /> Add person
+            <UserPlus size={16} /> Add staff
           </button>
         </>}
       </PageHeader>
@@ -183,7 +183,7 @@ function ImportModal({ onClose, onDone }) {
     try {
       const r = await api("users/import", { method: "POST", body: JSON.stringify({ csv }) });
       setResult(r);
-      if (r.created) toast.success(`Imported ${r.created} ${r.created === 1 ? "person" : "people"}`);
+      if (r.created) toast.success(`Imported ${r.created} staff ${r.created === 1 ? "member" : "members"}`);
       else if (!r.errors.length) toast(`No new people (${r.skipped} already existed)`);
     } catch (e) { toast.error(e.message); }
     finally { setBusy(false); }
@@ -252,10 +252,10 @@ function Empty({ onAdd }) {
     <div className="py-20 flex flex-col items-center gap-3 text-center">
       <div className="w-12 h-12 rounded-2xl bg-surface-2 grid place-items-center text-faint"><UserPlus size={22} /></div>
       <div>
-        <p className="font-semibold text-content">No people yet</p>
+        <p className="font-semibold text-content">No staff yet</p>
         <p className="text-sm text-muted">Add your first learner to get started.</p>
       </div>
-      <button className="btn-brand" onClick={onAdd}><UserPlus size={16} /> Add person</button>
+      <button className="btn-brand" onClick={onAdd}><UserPlus size={16} /> Add staff</button>
     </div>
   );
 }
