@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
-import { BookOpen, Award, Play, RotateCcw, CheckCircle2, Loader2, FileText, HelpCircle, Clock, ClipboardCheck, Calendar, AlertTriangle, Search } from "lucide-react";
+import { BookOpen, Award, Play, RotateCcw, CheckCircle2, Loader2, FileText, HelpCircle, Clock, ClipboardCheck, Calendar, AlertTriangle, Search, Lock } from "lucide-react";
 import api from "../lib/api";
 import PageHeader from "../components/PageHeader";
 
@@ -110,17 +110,19 @@ function AssignedCard({ a, onOpen }) {
 function CourseCard({ course, onOpen }) {
   const passed = course.enrollment_status === "passed";
   const started = !!course.enrollment_status;
+  const locked = !!course.locked;
   const Btn = passed
     ? { label: "Review", icon: RotateCcw }
     : started ? { label: "Continue", icon: Play } : { label: "Start course", icon: Play };
 
   return (
-    <div className="card p-5 flex flex-col">
+    <div className={`card p-5 flex flex-col ${locked ? "opacity-70" : ""}`}>
       <div className="flex items-start justify-between gap-3">
-        <div className="w-10 h-10 rounded-xl grid place-items-center text-brand-fg flex-shrink-0"
-          style={{ backgroundImage: "linear-gradient(135deg, rgb(var(--brand)), rgb(var(--brand-2)))" }}>
-          <BookOpen size={18} />
+        <div className={`w-10 h-10 rounded-xl grid place-items-center flex-shrink-0 ${locked ? "bg-surface-2 text-faint" : "text-brand-fg"}`}
+          style={locked ? undefined : { backgroundImage: "linear-gradient(135deg, rgb(var(--brand)), rgb(var(--brand-2)))" }}>
+          {locked ? <Lock size={18} /> : <BookOpen size={18} />}
         </div>
+        {locked && <span className="chip" style={{ backgroundColor: "rgb(var(--muted) / 0.14)", color: "rgb(var(--muted))" }}><Lock size={12} /> Locked</span>}
         {passed && <span className="chip" style={{ backgroundColor: "rgb(var(--ok) / 0.14)", color: "rgb(var(--ok))" }}><CheckCircle2 size={12} /> Passed</span>}
       </div>
       <h3 className="mt-4 font-bold text-content leading-snug line-clamp-2">{course.title}</h3>
@@ -131,7 +133,7 @@ function CourseCard({ course, onOpen }) {
         <span className="ml-auto">Pass {course.pass_mark}%</span>
       </div>
 
-      {started && !passed && (
+      {started && !passed && !locked && (
         <div className="mt-4">
           <div className="h-1.5 rounded-full bg-surface-2 overflow-hidden">
             <div className="h-full rounded-full transition-all" style={{ width: `${course.progress_pct || 0}%`, backgroundImage: "linear-gradient(90deg, rgb(var(--brand)), rgb(var(--brand-2)))" }} />
@@ -140,9 +142,16 @@ function CourseCard({ course, onOpen }) {
         </div>
       )}
 
-      <button onClick={onOpen} className={`mt-4 ${passed ? "btn-ghost" : "btn-brand"} w-full`}>
-        <Btn.icon size={16} /> {Btn.label}
-      </button>
+      {locked ? (
+        <>
+          <button disabled className="mt-4 btn-ghost w-full opacity-60 cursor-not-allowed"><Lock size={16} /> Locked</button>
+          <p className="text-[11px] text-faint text-center mt-2">Pass <strong className="text-muted">{course.prerequisite_title}</strong> to unlock.</p>
+        </>
+      ) : (
+        <button onClick={onOpen} className={`mt-4 ${passed ? "btn-ghost" : "btn-brand"} w-full`}>
+          <Btn.icon size={16} /> {Btn.label}
+        </button>
+      )}
     </div>
   );
 }

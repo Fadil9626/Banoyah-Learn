@@ -4,7 +4,7 @@ import { toast } from "react-hot-toast";
 import {
   ArrowLeft, Loader2, Save, Trash2, Plus, X, FileText, Video, File,
   ChevronUp, ChevronDown, Check, Globe, PencilLine, HelpCircle, Upload,
-  ClipboardCheck, UserPlus, Calendar, Sparkles,
+  ClipboardCheck, UserPlus, Calendar, Sparkles, Lock,
 } from "lucide-react";
 import api, { getToken } from "../lib/api";
 import { StatusChip } from "./Courses";
@@ -101,9 +101,17 @@ function DetailsTab({ course, onSaved }) {
     title: course.title, description: course.description || "", category: course.category || "",
     pass_mark: course.pass_mark, validity_months: course.validity_months ?? "",
     shuffle_questions: !!course.shuffle_questions, max_attempts: course.max_attempts ?? 0,
+    prerequisite_course_id: course.prerequisite_course_id ?? "",
   });
   const [busy, setBusy] = useState(false);
+  const [others, setOthers] = useState([]);
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
+
+  useEffect(() => {
+    api("courses")
+      .then((all) => setOthers(all.filter((c) => c.id !== course.id)))
+      .catch(() => setOthers([]));
+  }, [course.id]);
 
   const save = async () => {
     setBusy(true);
@@ -138,6 +146,18 @@ function DetailsTab({ course, onSaved }) {
           <label className="label">Validity (months)</label>
           <input className="input" type="number" min="0" value={f.validity_months} onChange={(e) => set("validity_months", e.target.value)} placeholder="Never expires" />
         </div>
+      </div>
+
+      {/* Learning path */}
+      <div className="pt-4 mt-1 border-t border-line">
+        <p className="text-[10px] font-black uppercase tracking-widest text-faint flex items-center gap-1.5 mb-4"><Lock size={12} /> Learning path</p>
+        <label className="label">Prerequisite course</label>
+        <select className="input" value={f.prerequisite_course_id}
+          onChange={(e) => set("prerequisite_course_id", e.target.value)}>
+          <option value="">None — anyone can start this course</option>
+          {others.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+        </select>
+        <p className="text-[11px] text-faint mt-1">Learners must pass this course before they can open the current one.</p>
       </div>
 
       {/* Quiz options */}

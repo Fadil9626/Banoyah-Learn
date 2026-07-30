@@ -46,14 +46,17 @@ const getCourse = async (req, res) => {
 };
 
 const createCourse = async (req, res) => {
-  const { title, description, category, pass_mark, validity_months, shuffle_questions, max_attempts } = req.body;
+  const { title, description, category, pass_mark, validity_months, shuffle_questions, max_attempts, prerequisite_course_id } = req.body;
   if (!title?.trim()) return res.status(400).json({ message: "Title is required" });
   try {
+    const prereq = idOrNull(prerequisite_course_id);
+    if (prereq && !(await ownedCourse(req.user.org_id, prereq)))
+      return res.status(400).json({ message: "Prerequisite course not found" });
     const { rows } = await pool.query(
-      `INSERT INTO courses (org_id, title, description, category, pass_mark, validity_months, shuffle_questions, max_attempts, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      `INSERT INTO courses (org_id, title, description, category, pass_mark, validity_months, shuffle_questions, max_attempts, prerequisite_course_id, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
       [req.user.org_id, title.trim(), description || null, category || null,
-       clampPct(pass_mark, 70), monthsOrNull(validity_months), !!shuffle_questions, nonNegInt(max_attempts), req.user.id]
+       clampPct(pass_mark, 70), monthsOrNull(validity_months), !!shuffle_questions, nonNegInt(max_attempts), prereq, req.user.id]
     );
     return res.status(201).json(rows[0]);
   } catch (e) { return res.status(500).json({ message: e.message }); }
@@ -62,11 +65,16 @@ const createCourse = async (req, res) => {
 const updateCourse = async (req, res) => {
   try {
     if (!(await ownedCourse(req.user.org_id, req.params.id))) return res.status(404).json({ message: "Course not found" });
+    if (req.body.prerequisite_course_id !== undefined) {
+      const err = await validatePrerequisite(req.user.org_id, Number(req.params.id), idOrNull(req.body.prerequisite_course_id));
+      if (err) return res.status(400).json({ message: err });
+    }
     const sets = [], vals = []; let i = 1;
     const fmt = {
       title: (v) => String(v).trim(), description: (v) => v || null, category: (v) => v || null,
       pass_mark: (v) => clampPct(v, 70), validity_months: (v) => monthsOrNull(v),
       shuffle_questions: (v) => !!v, max_attempts: (v) => nonNegInt(v),
+      prerequisite_course_id: (v) => idOrNull(v),
     };
     for (const [k, f] of Object.entries(fmt)) {
       if (req.body[k] !== undefined) { sets.push(`${k}=$${i++}`); vals.push(f(req.body[k])); }
@@ -219,6 +227,24 @@ const touch = (courseId) => pool.query("UPDATE courses SET updated_at=NOW() WHER
 const clampPct = (v, dflt) => { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : dflt; };
 const monthsOrNull = (v) => { if (v === null || v === undefined || v === "") return null; const n = parseInt(v, 10); return Number.isFinite(n) && n > 0 ? n : null; };
 const nonNegInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) && n > 0 ? n : 0; };
+const idOrNull = (v) => { if (v === null || v === undefined || v === "") return null; const n = parseInt(v, 10); return Number.isFinite(n) && n > 0 ? n : null; };
+
+// A course's prerequisite must live in the same org and must not close a loop —
+// otherwise every course in the cycle would be permanently unreachable.
+async function validatePrerequisite(orgId, courseId, prereqId) {
+  if (!prereqId) return null;
+  if (prereqId === courseId) return "A course can't be its own prerequisite.";
+  if (!(await ownedCourse(orgId, prereqId))) return "Prerequisite course not found";
+  const seen = new Set([courseId]);
+  let cursor = prereqId;
+  while (cursor) {
+    if (seen.has(cursor)) return "That would create a circular prerequisite chain.";
+    seen.add(cursor);
+    const { rows } = await pool.query("SELECT prerequisite_course_id FROM courses WHERE id=$1", [cursor]);
+    cursor = rows[0]?.prerequisite_course_id || null;
+  }
+  return null;
+}
 
 // ── POST /api/courses/:id/questions/generate ─────────────────────────────────
 // Draft quiz questions from the course's lessons with AI. Returns the questions

@@ -25,9 +25,13 @@ const catalog = async (req, res) => {
       `SELECT c.id, c.title, c.description, c.category, c.pass_mark, c.validity_months,
               (SELECT COUNT(*) FROM lessons l WHERE l.course_id=c.id)       AS lesson_count,
               (SELECT COUNT(*) FROM quiz_questions q WHERE q.course_id=c.id) AS question_count,
-              e.status AS enrollment_status, e.progress_pct, e.best_score
+              e.status AS enrollment_status, e.progress_pct, e.best_score,
+              p.title AS prerequisite_title,
+              (p.id IS NOT NULL AND COALESCE(pe.status,'') <> 'passed') AS locked
        FROM courses c
-       LEFT JOIN enrollments e ON e.course_id=c.id AND e.user_id=$1
+       LEFT JOIN enrollments e  ON e.course_id=c.id AND e.user_id=$1
+       LEFT JOIN courses p      ON p.id=c.prerequisite_course_id
+       LEFT JOIN enrollments pe ON pe.course_id=p.id AND pe.user_id=$1
        WHERE c.org_id=$2 AND c.status='published'
        ORDER BY c.title`,
       [req.user.id, req.user.org_id]
@@ -41,6 +45,8 @@ const enroll = async (req, res) => {
   try {
     const course = await publishedCourse(req.user.org_id, req.params.id);
     if (!course) return res.status(404).json({ message: "Course not available" });
+    const blocked = await prerequisiteBlock(req.user.id, course);
+    if (blocked) return res.status(403).json({ message: blocked });
     const { rows } = await pool.query(
       `INSERT INTO enrollments (org_id, user_id, course_id) VALUES ($1,$2,$3)
        ON CONFLICT (user_id, course_id) DO UPDATE SET updated_at=NOW()
@@ -58,6 +64,8 @@ const getForLearner = async (req, res) => {
   try {
     const course = await publishedCourse(req.user.org_id, req.params.id);
     if (!course) return res.status(404).json({ message: "Course not available" });
+    const blocked = await prerequisiteBlock(req.user.id, course);
+    if (blocked) return res.status(403).json({ message: blocked });
     const lessons = (await pool.query(
       "SELECT id, sort, title, type, body, media_url FROM lessons WHERE course_id=$1 ORDER BY sort, id", [course.id]
     )).rows;
@@ -88,6 +96,8 @@ const markProgress = async (req, res) => {
   try {
     const course = await publishedCourse(req.user.org_id, req.params.id);
     if (!course) return res.status(404).json({ message: "Course not available" });
+    const blocked = await prerequisiteBlock(req.user.id, course);
+    if (blocked) return res.status(403).json({ message: blocked });
     const enr = await ensureEnrollment(req.user, course.id);
 
     const total = (await pool.query("SELECT COUNT(*) FROM lessons WHERE course_id=$1", [course.id])).rows[0].count;
@@ -111,6 +121,8 @@ const submitQuiz = async (req, res) => {
   try {
     const course = await publishedCourse(req.user.org_id, req.params.id);
     if (!course) return res.status(404).json({ message: "Course not available" });
+    const blocked = await prerequisiteBlock(req.user.id, course);
+    if (blocked) return res.status(403).json({ message: blocked });
     const enr = await ensureEnrollment(req.user, course.id);
 
     // Enforce the attempt limit (until passed; 0 = unlimited).
@@ -250,6 +262,22 @@ async function publishedCourse(orgId, courseId) {
   );
   return rows[0] || null;
 }
+// Locked-course check. Returns null when the caller may proceed, or a reason
+// string when the course's prerequisite hasn't been passed yet.
+async function prerequisiteBlock(userId, course) {
+  if (!course.prerequisite_course_id) return null;
+  const { rows } = await pool.query(
+    `SELECT p.title, e.status
+     FROM courses p
+     LEFT JOIN enrollments e ON e.course_id=p.id AND e.user_id=$1
+     WHERE p.id=$2`,
+    [userId, course.prerequisite_course_id]
+  );
+  const prereq = rows[0];
+  if (!prereq || prereq.status === "passed") return null;
+  return `Complete "${prereq.title}" before starting this course.`;
+}
+
 async function ensureEnrollment(user, courseId) {
   const { rows } = await pool.query(
     `INSERT INTO enrollments (org_id, user_id, course_id) VALUES ($1,$2,$3)
