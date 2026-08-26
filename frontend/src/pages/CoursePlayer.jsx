@@ -257,27 +257,75 @@ function Quiz({ course, sitting, onCancel, onDone }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sitting.expires_at]);
 
-  const mmss = (secs) => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
-  const nearlyOut = left !== null && left <= 60;
+  const mmss = (secs) => {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const ss = String(secs % 60).padStart(2, "0");
+    return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+  };
+
+  // The ring drains against the sitting's own length, so a resumed paper shows
+  // the time genuinely left rather than restarting the arc.
+  const totalSecs = sitting.expires_at && sitting.started_at
+    ? Math.max(1, Math.round((new Date(sitting.expires_at).getTime() - new Date(sitting.started_at).getTime()) / 1000))
+    : null;
+  const frac = left !== null && totalSecs ? Math.max(0, Math.min(1, left / totalSecs)) : 1;
+  const urgent = left !== null && left <= 60;
+  const warning = left !== null && left > 60 && left <= 300;
+  const tone = urgent ? "danger" : warning ? "warn" : "brand";
+  const R = 17, C = 2 * Math.PI * R;
 
   return (
     <div className="max-w-2xl mx-auto">
-      <div className="flex items-center justify-between mb-6 gap-3">
-        <h1 className="text-xl font-black text-content">{course.title} — Quiz</h1>
-        <div className="flex items-center gap-3">
-          {left !== null && (
-            <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-bold tabular-nums ${nearlyOut ? "text-danger" : "text-content"}`}
-              style={{ backgroundColor: nearlyOut ? "rgb(var(--danger) / 0.12)" : "rgb(var(--surface-2))" }}>
-              <Timer size={15} />{mmss(left)}
-            </span>
-          )}
-          <button onClick={onCancel} className="text-faint hover:text-content"><X size={20} /></button>
+      {/* Sticks to the top of the viewport, so the clock is in sight at every
+          question rather than only at the one you started on. */}
+      <div className="sticky top-0 z-30 -mx-2 px-2 pt-3 pb-3" style={{ backgroundColor: "rgb(var(--bg))" }}>
+        <div className="rounded-2xl border border-line overflow-hidden shadow-card"
+          style={{ backgroundColor: "rgb(var(--surface) / 0.82)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)" }}>
+          <div className="flex items-center gap-3 px-4 py-3">
+            {left !== null && (
+              <div className={`relative flex-shrink-0 ${urgent ? "animate-pulse" : ""}`} style={{ width: 44, height: 44 }}>
+                <svg width="44" height="44" viewBox="0 0 44 44" className="-rotate-90">
+                  <circle cx="22" cy="22" r={R} fill="none" strokeWidth="3.5"
+                    stroke="rgb(var(--line))" />
+                  <circle cx="22" cy="22" r={R} fill="none" strokeWidth="3.5" strokeLinecap="round"
+                    stroke={`rgb(var(--${tone}))`}
+                    strokeDasharray={C} strokeDashoffset={C * (1 - frac)}
+                    style={{ transition: "stroke-dashoffset 1s linear, stroke .4s ease" }} />
+                </svg>
+                <Timer size={15} className="absolute inset-0 m-auto"
+                  style={{ color: `rgb(var(--${tone}))` }} />
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              {left !== null ? (
+                <p className="text-2xl font-black tabular-nums leading-none tracking-tight"
+                  style={{ color: `rgb(var(--${tone}))` }}>{mmss(left)}</p>
+              ) : (
+                <p className="text-base font-black text-content leading-tight truncate">{course.title}</p>
+              )}
+              <p className="text-[11px] text-muted mt-1 truncate">
+                {answered}/{questions.length} answered · pass mark {course.pass_mark}%
+                {urgent && " · sending in soon"}
+              </p>
+            </div>
+            <button onClick={onCancel} className="text-faint hover:text-content flex-shrink-0" title="Back to lessons">
+              <X size={20} />
+            </button>
+          </div>
+          {/* how far through the paper they are */}
+          <div className="h-1 w-full" style={{ backgroundColor: "rgb(var(--line))" }}>
+            <div className="h-full transition-[width] duration-300"
+              style={{ width: `${questions.length ? (answered / questions.length) * 100 : 0}%`, backgroundColor: "rgb(var(--brand))" }} />
+          </div>
         </div>
       </div>
-      <p className="text-sm text-muted mb-5">
-        Score at least <strong className="text-content">{course.pass_mark}%</strong> to pass. {answered}/{questions.length} answered.
-        {left !== null && " Your answers are sent automatically when the time runs out."}
-      </p>
+
+      {left !== null && (
+        <p className="text-xs text-muted mb-5 px-1">
+          Your answers are sent in automatically when the time runs out.
+        </p>
+      )}
 
       <div className="space-y-4">
         {questions.map((q, qi) => (
