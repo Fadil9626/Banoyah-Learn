@@ -14,6 +14,7 @@ router.get("/certificates/:serial/pdf", c.downloadCertificate);
 router.get("/courses/:id", c.getForLearner);
 router.post("/courses/:id/enroll", c.enroll);
 router.post("/courses/:id/progress", c.markProgress);
+router.post("/courses/:id/quiz/start", c.startQuiz);
 router.post("/courses/:id/submit", c.submitQuiz);
 
 module.exports = router;

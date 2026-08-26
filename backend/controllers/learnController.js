@@ -69,10 +69,12 @@ const getForLearner = async (req, res) => {
     const lessons = (await pool.query(
       "SELECT id, sort, title, type, body, media_url FROM lessons WHERE course_id=$1 ORDER BY sort, id", [course.id]
     )).rows;
-    let questions = (await pool.query(
-      "SELECT id, sort, prompt, options FROM quiz_questions WHERE course_id=$1 ORDER BY sort, id", [course.id]
-    )).rows;
-    if (course.shuffle_questions) questions = shuffle(questions);
+    // The questions are NOT returned here any more. They come from starting a
+    // session, which is what starts the clock — otherwise the paper can be read
+    // without the timer ever running, and the limit means nothing.
+    const question_count = Number((await pool.query(
+      "SELECT COUNT(*) FROM quiz_questions WHERE course_id=$1", [course.id]
+    )).rows[0].count);
     const enrollment = (await pool.query(
       "SELECT * FROM enrollments WHERE user_id=$1 AND course_id=$2", [req.user.id, course.id]
     )).rows[0] || null;
@@ -84,7 +86,7 @@ const getForLearner = async (req, res) => {
       : 0;
     const passed = enrollment?.status === "passed";
     const attempts_left = course.max_attempts > 0 ? Math.max(0, course.max_attempts - attempts_used) : null;
-    return res.json({ course, lessons, questions, enrollment, certificate, attempts_used, attempts_left, can_attempt: passed || attempts_left === null || attempts_left > 0 });
+    return res.json({ course, lessons, question_count, enrollment, certificate, attempts_used, attempts_left, can_attempt: passed || attempts_left === null || attempts_left > 0 });
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 
@@ -114,6 +116,92 @@ const markProgress = async (req, res) => {
 };
 
 // ── POST /api/learn/courses/:id/submit ───────────────────────────────────────
+/**
+ * POST /api/learn/courses/:id/quiz/start — hand out the paper and start the clock.
+ *
+ * The order of the questions, and of the options inside each one, is decided
+ * here and stored. That matters twice over: a reload returns the same paper
+ * rather than reshuffling it under somebody mid-exam, and a fresh attempt gets a
+ * genuinely different one.
+ *
+ * Options carry their original index with them, so the client sends back the
+ * answer it was shown and grading needs no un-shuffling. A permutation that has
+ * to be reversed at grading time is a permutation that will eventually be
+ * reversed wrongly.
+ */
+const startQuiz = async (req, res) => {
+  try {
+    const course = await publishedCourse(req.user.org_id, req.params.id);
+    if (!course) return res.status(404).json({ message: "Course not available" });
+    const blocked = await prerequisiteBlock(req.user.id, course);
+    if (blocked) return res.status(403).json({ message: blocked });
+
+    const enr = (await pool.query(
+      "SELECT * FROM enrollments WHERE user_id=$1 AND course_id=$2", [req.user.id, course.id]
+    )).rows[0];
+    if (!enr) return res.status(400).json({ message: "Enrol in this course first" });
+
+    if (course.max_attempts > 0 && enr.status !== "passed") {
+      const used = Number((await pool.query(
+        "SELECT COUNT(*) FROM attempts WHERE enrollment_id=$1", [enr.id])).rows[0].count);
+      if (used >= course.max_attempts) return res.status(403).json({ message: "No attempts remaining for this course" });
+    }
+
+    // A sitting already open and still in time is resumed, not restarted —
+    // otherwise closing the tab by accident would buy a fresh clock.
+    let session = (await pool.query(
+      `SELECT * FROM quiz_sessions
+       WHERE enrollment_id=$1 AND submitted_at IS NULL
+         AND (expires_at IS NULL OR expires_at > NOW())
+       ORDER BY id DESC LIMIT 1`, [enr.id]
+    )).rows[0];
+
+    const all = (await pool.query(
+      "SELECT id, prompt, options FROM quiz_questions WHERE course_id=$1 ORDER BY sort, id", [course.id]
+    )).rows;
+    if (!all.length) return res.status(400).json({ message: "This course has no quiz" });
+
+    if (!session) {
+      const ordered = course.shuffle_questions ? shuffle(all) : all;
+      const plan = ordered.map((q) => {
+        const opts = (q.options || []).map((text, i) => ({ i, text }));
+        return { id: q.id, options: course.shuffle_options ? shuffle(opts).map((o) => o.i) : opts.map((o) => o.i) };
+      });
+      const expires = course.time_limit_minutes > 0
+        ? new Date(Date.now() + course.time_limit_minutes * 60000).toISOString()
+        : null;
+      session = (await pool.query(
+        `INSERT INTO quiz_sessions (enrollment_id, course_id, question_order, expires_at)
+         VALUES ($1,$2,$3,$4) RETURNING *`,
+        [enr.id, course.id, JSON.stringify(plan), expires]
+      )).rows[0];
+    }
+
+    // Rebuild the paper exactly as it was handed out.
+    const byId = Object.fromEntries(all.map((q) => [q.id, q]));
+    const questions = (session.question_order || [])
+      .filter((entry) => byId[entry.id])
+      .map((entry) => ({
+        id: entry.id,
+        prompt: byId[entry.id].prompt,
+        // { i, text } — i is the index grading understands, whatever order the
+        // learner sees them in.
+        options: entry.options
+          .filter((i) => byId[entry.id].options?.[i] !== undefined)
+          .map((i) => ({ i, text: byId[entry.id].options[i] })),
+      }));
+
+    return res.json({
+      session_id: session.id,
+      questions,
+      started_at: session.started_at,
+      expires_at: session.expires_at,
+      time_limit_minutes: course.time_limit_minutes,
+      pass_mark: course.pass_mark,
+    });
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+};
+
 // Grade a quiz attempt. Body: { answers: { "<questionId>": <selectedIndex> } }.
 // On pass, issue/refresh a certificate. Returns the score + per-question result.
 const submitQuiz = async (req, res) => {
@@ -131,18 +219,43 @@ const submitQuiz = async (req, res) => {
       if (used >= course.max_attempts) return res.status(403).json({ message: "No attempts remaining for this course" });
     }
 
+    // The sitting is what was timed. No open session means the paper was never
+    // handed out through the front door.
+    const session = (await pool.query(
+      `SELECT * FROM quiz_sessions
+       WHERE enrollment_id=$1 AND submitted_at IS NULL
+       ORDER BY id DESC LIMIT 1`, [enr.id]
+    )).rows[0];
+    if (!session) return res.status(409).json({ message: "Start the quiz before submitting it" });
+
+    // Thirty seconds of slack: a paper submitted as the clock runs out should
+    // not be lost to the round trip. Anything beyond that had the extra time.
+    if (session.expires_at && Date.now() > new Date(session.expires_at).getTime() + 30_000) {
+      await pool.query("UPDATE quiz_sessions SET submitted_at=NOW() WHERE id=$1", [session.id]);
+      return res.status(408).json({
+        message: "Time ran out before this was submitted. Start the quiz again when you are ready.",
+        expired: true,
+      });
+    }
+
     const questions = (await pool.query(
-      "SELECT id, correct_index FROM quiz_questions WHERE course_id=$1", [course.id]
+      "SELECT id, prompt, options, correct_index FROM quiz_questions WHERE course_id=$1", [course.id]
     )).rows;
     if (!questions.length) return res.status(400).json({ message: "This course has no quiz" });
 
     let correct = 0;
-    const review = {};
+    // The review carries the question with it. The sitting is over by the time
+    // this is read, so the client has nothing left to join it against — and a
+    // review that renders blank because the paper has gone is worse than none.
+    const review = [];
     for (const q of questions) {
       const chosen = answers[q.id] ?? answers[String(q.id)];
       const isRight = Number(chosen) === q.correct_index;
       if (isRight) correct++;
-      review[q.id] = { chosen: chosen ?? null, correct_index: q.correct_index, correct: isRight };
+      review.push({
+        id: q.id, prompt: q.prompt, options: q.options || [],
+        chosen: chosen ?? null, correct_index: q.correct_index, correct: isRight,
+      });
     }
     const score = Math.round((correct / questions.length) * 100);
     const passed = score >= course.pass_mark;
@@ -151,6 +264,9 @@ const submitQuiz = async (req, res) => {
       "INSERT INTO attempts (enrollment_id, score, passed, answers) VALUES ($1,$2,$3,$4)",
       [enr.id, score, passed, JSON.stringify(answers)]
     );
+    // Closed either way. An open session is a second submission waiting to
+    // happen, and the next attempt must get a freshly shuffled paper.
+    await pool.query("UPDATE quiz_sessions SET submitted_at=NOW() WHERE id=$1", [session.id]);
     const best = Math.max(score, enr.best_score ?? 0);
     await pool.query(
       "UPDATE enrollments SET status=$1, best_score=$2, updated_at=NOW() WHERE id=$3",
@@ -182,7 +298,20 @@ const submitQuiz = async (req, res) => {
 
     const used = Number((await pool.query("SELECT COUNT(*) FROM attempts WHERE enrollment_id=$1", [enr.id])).rows[0].count);
     const attempts_left = course.max_attempts > 0 ? Math.max(0, course.max_attempts - used) : null;
-    return res.json({ score, passed, pass_mark: course.pass_mark, correct, total: questions.length, review, certificate, attempts_left });
+
+    // Handing the correct answers back after a failed attempt is what made
+    // retakes decorative: fail, read the key, retake, pass. On 'on_pass' the
+    // review is a teaching aid for somebody who has already earned the
+    // certificate, which is the only time it costs nothing.
+    const reveal = course.reveal_answers === "always"
+      || (course.reveal_answers === "on_pass" && passed);
+
+    return res.json({
+      score, passed, pass_mark: course.pass_mark, correct, total: questions.length,
+      review: reveal ? review : undefined,
+      answers_hidden: !reveal,
+      certificate, attempts_left,
+    });
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 
@@ -287,4 +416,4 @@ async function ensureEnrollment(user, courseId) {
   return rows[0];
 }
 
-module.exports = { catalog, enroll, getForLearner, markProgress, submitQuiz, myLearning, getCertificate, downloadCertificate };
+module.exports = { catalog, enroll, getForLearner, markProgress, startQuiz, submitQuiz, myLearning, getCertificate, downloadCertificate };

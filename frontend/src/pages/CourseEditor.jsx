@@ -101,6 +101,9 @@ function DetailsTab({ course, onSaved }) {
     title: course.title, description: course.description || "", category: course.category || "",
     pass_mark: course.pass_mark, validity_months: course.validity_months ?? "",
     shuffle_questions: !!course.shuffle_questions, max_attempts: course.max_attempts ?? 0,
+    shuffle_options: course.shuffle_options ?? true,
+    time_limit_minutes: course.time_limit_minutes ?? 0,
+    reveal_answers: course.reveal_answers || "on_pass",
     prerequisite_course_id: course.prerequisite_course_id ?? "",
   });
   const [busy, setBusy] = useState(false);
@@ -173,10 +176,45 @@ function DetailsTab({ course, onSaved }) {
             <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${f.shuffle_questions ? "translate-x-5" : ""}`} />
           </span>
         </button>
-        <div className="max-w-[12rem]">
-          <label className="label">Max attempts</label>
-          <input className="input" type="number" min="0" value={f.max_attempts} onChange={(e) => set("max_attempts", e.target.value)} placeholder="0" />
-          <p className="text-[11px] text-faint mt-1">0 = unlimited until passed.</p>
+        <button type="button" onClick={() => set("shuffle_options", !f.shuffle_options)}
+          className="w-full flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-surface-2/50 border border-line hover:bg-surface-2 transition text-left">
+          <span>
+            <span className="block text-sm font-semibold text-content">Shuffle answers</span>
+            <span className="block text-xs text-muted">Reordering questions alone leaves “it was the third one” working.</span>
+          </span>
+          <span className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${f.shuffle_options ? "bg-ok" : "bg-line"}`}>
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${f.shuffle_options ? "translate-x-5" : ""}`} />
+          </span>
+        </button>
+
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div>
+            <label className="label">Max attempts</label>
+            <input className="input" type="number" min="0" value={f.max_attempts} onChange={(e) => set("max_attempts", e.target.value)} placeholder="0" />
+            <p className="text-[11px] text-faint mt-1">0 = unlimited until passed.</p>
+          </div>
+          <div>
+            <label className="label">Time limit (minutes)</label>
+            <input className="input" type="number" min="0" value={f.time_limit_minutes}
+              onChange={(e) => set("time_limit_minutes", e.target.value)} placeholder="0" />
+            <p className="text-[11px] text-faint mt-1">
+              0 = untimed. The clock is kept on the server and the paper is sent in
+              automatically when it runs out.
+            </p>
+          </div>
+        </div>
+
+        <div>
+          <label className="label">Show the correct answers</label>
+          <select className="input" value={f.reveal_answers} onChange={(e) => set("reveal_answers", e.target.value)}>
+            <option value="on_pass">Once they pass</option>
+            <option value="never">Never</option>
+            <option value="always">Always — open practice</option>
+          </select>
+          <p className="text-[11px] text-faint mt-1">
+            Showing the key after a failed attempt is what makes a retake pointless: fail,
+            read the answers, pass. “Once they pass” still teaches, and costs nothing.
+          </p>
         </div>
       </div>
 

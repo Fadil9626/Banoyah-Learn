@@ -4,7 +4,7 @@ import { toast } from "react-hot-toast";
 import {
   ArrowLeft, Loader2, CheckCircle2, Circle, FileText, Video, File,
   ChevronRight, Award, RotateCcw, X, Check, ListChecks, AlertTriangle,
-  Maximize2, Minimize2, Download, ExternalLink,
+  Maximize2, Minimize2, Download, ExternalLink, Timer, EyeOff,
 } from "lucide-react";
 import api from "../lib/api";
 import LessonContent from "../components/LessonContent";
@@ -18,8 +18,29 @@ export default function CoursePlayer() {
   const [mode, setMode] = useState("learn"); // learn | quiz | result
   const [activeLesson, setActiveLesson] = useState(0);
   const [result, setResult] = useState(null);
+  // The paper is no longer part of the course payload — it is handed out by
+  // starting a sitting, which is what starts the clock.
+  const [sitting, setSitting] = useState(null);
+  const [starting, setStarting] = useState(false);
   const [fs, setFs] = useState(false);
   const readerRef = useRef(null);
+
+  // Starting a sitting is the only way to get the questions. Resuming an
+  // unfinished one returns the same paper with the clock still running, so
+  // closing the tab does not buy a fresh start.
+  const beginQuiz = async () => {
+    setStarting(true);
+    try {
+      const r = await api(`learn/courses/${id}/quiz/start`, { method: "POST" });
+      setSitting(r);
+      setResult(null);
+      setMode("quiz");
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setStarting(false);
+    }
+  };
 
   // Full-screen reading mode. Uses the native Fullscreen API where available and
   // falls back to a fixed overlay (the conditional classes below) otherwise; the
@@ -58,14 +79,14 @@ export default function CoursePlayer() {
 
   if (!data) return <div className="py-20 grid place-items-center text-muted"><Loader2 className="animate-spin" /></div>;
 
-  if (mode === "quiz")
-    return <Quiz course={data.course} questions={data.questions}
+  if (mode === "quiz" && sitting)
+    return <Quiz course={data.course} sitting={sitting}
       onCancel={() => setMode("learn")}
-      onDone={(r) => { setResult(r); setMode("result"); load(); }} />;
+      onDone={(r) => { setResult(r); setSitting(null); setMode("result"); load(); }} />;
 
   if (mode === "result")
-    return <Result result={result} course={data.course} questions={data.questions}
-      onRetry={() => setMode("quiz")} onClose={() => navigate("/learn")}
+    return <Result result={result} course={data.course}
+      onRetry={() => beginQuiz()} onClose={() => navigate("/learn")}
       onCertificate={(serial) => navigate(`/learn/certificate/${serial}`)} />;
 
   // ── Learn mode ──
@@ -111,7 +132,7 @@ export default function CoursePlayer() {
             );
           })}
           <div className="p-2 mt-1 border-t border-line">
-            <button onClick={() => setMode("quiz")} disabled={!allLessonsDone || data.can_attempt === false}
+            <button onClick={beginQuiz} disabled={starting || !allLessonsDone || data.can_attempt === false}
               className="btn-brand w-full disabled:opacity-50" title={allLessonsDone ? "" : "Complete all lessons first"}>
               <ListChecks size={16} /> Take quiz
             </button>
@@ -164,7 +185,7 @@ export default function CoursePlayer() {
                   Next <ChevronRight size={16} />
                 </button>
               ) : (
-                <button onClick={() => { if (!done.has(lesson.id)) markDone(lesson.id); setMode("quiz"); }} disabled={data.lessons.length === 0} className="btn-brand">
+                <button onClick={() => { if (!done.has(lesson.id)) markDone(lesson.id); beginQuiz(); }} disabled={starting || data.lessons.length === 0} className="btn-brand">
                   <ListChecks size={16} /> Go to quiz
                 </button>
               )}
@@ -197,44 +218,83 @@ function PdfLesson({ url, title, fs }) {
 }
 
 // ── Quiz ──────────────────────────────────────────────────────────────────────
-function Quiz({ course, questions, onCancel, onDone }) {
+function Quiz({ course, sitting, onCancel, onDone }) {
+  const questions = sitting.questions;
   const [answers, setAnswers] = useState({});
   const [busy, setBusy] = useState(false);
+  const [left, setLeft] = useState(null);   // seconds remaining, null = untimed
   const answered = Object.keys(answers).length;
+  const submitted = useRef(false);
 
-  const submit = async () => {
+  const submit = async (auto = false) => {
+    // Guarded: the countdown hitting zero while somebody is pressing Submit
+    // must not send the paper twice.
+    if (submitted.current) return;
+    submitted.current = true;
     setBusy(true);
     try {
       const r = await api(`learn/courses/${course.id}/submit`, { method: "POST", body: JSON.stringify({ answers }) });
+      if (auto) toast("Time is up — your answers were submitted.");
       onDone(r);
-    } catch (e) { toast.error(e.message); }
-    finally { setBusy(false); }
+    } catch (e) {
+      toast.error(e.message);
+      submitted.current = false;      // let them try again if the send failed
+    } finally { setBusy(false); }
   };
+
+  // The deadline came from the server at the start; this only counts down to
+  // it. A clock the client owns is a clock the client can stop.
+  useEffect(() => {
+    if (!sitting.expires_at) return;
+    const tick = () => {
+      const secs = Math.max(0, Math.round((new Date(sitting.expires_at).getTime() - Date.now()) / 1000));
+      setLeft(secs);
+      if (secs === 0) submit(true);
+    };
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sitting.expires_at]);
+
+  const mmss = (secs) => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+  const nearlyOut = left !== null && left <= 60;
 
   return (
     <div className="max-w-2xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 gap-3">
         <h1 className="text-xl font-black text-content">{course.title} — Quiz</h1>
-        <button onClick={onCancel} className="text-faint hover:text-content"><X size={20} /></button>
+        <div className="flex items-center gap-3">
+          {left !== null && (
+            <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-bold tabular-nums ${nearlyOut ? "text-danger" : "text-content"}`}
+              style={{ backgroundColor: nearlyOut ? "rgb(var(--danger) / 0.12)" : "rgb(var(--surface-2))" }}>
+              <Timer size={15} />{mmss(left)}
+            </span>
+          )}
+          <button onClick={onCancel} className="text-faint hover:text-content"><X size={20} /></button>
+        </div>
       </div>
-      <p className="text-sm text-muted mb-5">Score at least <strong className="text-content">{course.pass_mark}%</strong> to pass. {answered}/{questions.length} answered.</p>
+      <p className="text-sm text-muted mb-5">
+        Score at least <strong className="text-content">{course.pass_mark}%</strong> to pass. {answered}/{questions.length} answered.
+        {left !== null && " Your answers are sent automatically when the time runs out."}
+      </p>
 
       <div className="space-y-4">
         {questions.map((q, qi) => (
           <div key={q.id} className="card p-5">
             <p className="font-semibold text-content mb-3"><span className="text-faint mr-2">{qi + 1}.</span>{q.prompt}</p>
             <div className="space-y-2">
-              {q.options.map((o, oi) => {
-                const selected = answers[q.id] === oi;
+              {q.options.map((o) => {
+                const selected = answers[q.id] === o.i;
                 return (
-                  <button key={oi} onClick={() => setAnswers((a) => ({ ...a, [q.id]: oi }))}
+                  <button key={o.i} onClick={() => setAnswers((a) => ({ ...a, [q.id]: o.i }))}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left text-sm transition ${
                       selected ? "border-brand bg-brand/10 text-content" : "border-line text-muted hover:border-faint"
                     }`}>
                     <span className={`w-5 h-5 rounded-full border-2 grid place-items-center flex-shrink-0 ${selected ? "border-brand bg-brand" : "border-faint"}`}>
                       {selected && <span className="w-2 h-2 rounded-full bg-white" />}
                     </span>
-                    {o}
+                    {o.text}
                   </button>
                 );
               })}
@@ -251,7 +311,7 @@ function Quiz({ course, questions, onCancel, onDone }) {
       )}
       <div className="flex gap-3 mt-4">
         <button onClick={onCancel} className="btn-ghost flex-1">Back to lessons</button>
-        <button onClick={submit} disabled={busy} className="btn-brand flex-1">
+        <button onClick={() => submit(false)} disabled={busy} className="btn-brand flex-1">
           {busy ? <Loader2 size={16} className="animate-spin" /> : (answered < questions.length ? "Submit anyway" : "Submit quiz")}
         </button>
       </div>
@@ -260,8 +320,8 @@ function Quiz({ course, questions, onCancel, onDone }) {
 }
 
 // ── Result ────────────────────────────────────────────────────────────────────
-function Result({ result, course, questions, onRetry, onClose, onCertificate }) {
-  const { passed, score, pass_mark, correct, total, review, attempts_left } = result;
+function Result({ result, course, onRetry, onClose, onCertificate }) {
+  const { passed, score, pass_mark, correct, total, review, attempts_left, answers_hidden } = result;
   const noAttempts = attempts_left === 0;
   return (
     <div className="max-w-lg mx-auto pt-6">
@@ -284,34 +344,47 @@ function Result({ result, course, questions, onRetry, onClose, onCertificate }) 
         )}
       </div>
 
-      {/* Answer review */}
-      {review && questions?.length > 0 && (
+      {/* Which questions were missed, and why — but only when the course allows
+          it. Handing the key back after a failure is what made retakes
+          pointless. */}
+      {Array.isArray(review) && review.length > 0 && (
         <div className="mt-8">
           <p className="text-[10px] font-black uppercase tracking-widest text-faint mb-3">Review</p>
           <div className="space-y-3">
-            {questions.map((q, qi) => {
-              const r = review[q.id] || {};
-              return (
-                <div key={q.id} className="card p-4">
-                  <div className="flex items-start gap-2">
-                    {r.correct ? <Check size={16} className="text-ok mt-0.5 flex-shrink-0" /> : <X size={16} className="text-danger mt-0.5 flex-shrink-0" />}
-                    <p className="text-sm font-semibold text-content">{q.prompt}</p>
-                  </div>
-                  <ul className="mt-2 space-y-1 pl-6">
-                    {q.options.map((o, oi) => {
-                      const isCorrect = oi === r.correct_index;
-                      const isChosen = oi === r.chosen;
-                      return (
-                        <li key={oi} className={`text-xs flex items-center gap-2 ${isCorrect ? "text-ok font-semibold" : isChosen ? "text-danger" : "text-muted"}`}>
-                          {isCorrect ? <Check size={12} /> : isChosen ? <X size={12} /> : <span className="w-3" />}
-                          {o}{isChosen && !isCorrect ? " (your answer)" : ""}
-                        </li>
-                      );
-                    })}
-                  </ul>
+            {review.map((r) => (
+              <div key={r.id} className="card p-4">
+                <div className="flex items-start gap-2">
+                  {r.correct ? <Check size={16} className="text-ok mt-0.5 flex-shrink-0" /> : <X size={16} className="text-danger mt-0.5 flex-shrink-0" />}
+                  <p className="text-sm font-semibold text-content">{r.prompt}</p>
                 </div>
-              );
-            })}
+                <ul className="mt-2 space-y-1 pl-6">
+                  {(r.options || []).map((o, oi) => {
+                    const isCorrect = oi === r.correct_index;
+                    const isChosen = oi === r.chosen;
+                    return (
+                      <li key={oi} className={`text-xs flex items-center gap-2 ${isCorrect ? "text-ok font-semibold" : isChosen ? "text-danger" : "text-muted"}`}>
+                        {isCorrect ? <Check size={12} /> : isChosen ? <X size={12} /> : <span className="w-3" />}
+                        {o}{isChosen && !isCorrect ? " (your answer)" : ""}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {answers_hidden && (
+        <div className="mt-8 card p-4 flex items-start gap-3">
+          <EyeOff size={16} className="text-faint mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-content">Answers are not shown</p>
+            <p className="text-xs text-muted mt-0.5">
+              {passed
+                ? "This course keeps its answer key private."
+                : "Go back over the lessons and try again — the questions will be in a different order."}
+            </p>
           </div>
         </div>
       )}

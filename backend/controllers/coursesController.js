@@ -45,18 +45,33 @@ const getCourse = async (req, res) => {
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 
+// Anything unrecognised becomes 'on_pass' rather than reaching the CHECK
+// constraint: a typo in an API call should not 500 the request.
+const REVEAL_MODES = new Set(["never", "on_pass", "always"]);
+const revealMode = (v) => (REVEAL_MODES.has(String(v)) ? String(v) : "on_pass");
+
 const createCourse = async (req, res) => {
-  const { title, description, category, pass_mark, validity_months, shuffle_questions, max_attempts, prerequisite_course_id } = req.body;
+  const { title, description, category, pass_mark, validity_months, shuffle_questions, max_attempts,
+          prerequisite_course_id, time_limit_minutes, shuffle_options, reveal_answers } = req.body;
   if (!title?.trim()) return res.status(400).json({ message: "Title is required" });
   try {
     const prereq = idOrNull(prerequisite_course_id);
     if (prereq && !(await ownedCourse(req.user.org_id, prereq)))
       return res.status(400).json({ message: "Prerequisite course not found" });
     const { rows } = await pool.query(
-      `INSERT INTO courses (org_id, title, description, category, pass_mark, validity_months, shuffle_questions, max_attempts, prerequisite_course_id, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      `INSERT INTO courses (org_id, title, description, category, pass_mark, validity_months, shuffle_questions,
+                            max_attempts, prerequisite_course_id, time_limit_minutes, shuffle_options, reveal_answers, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
       [req.user.org_id, title.trim(), description || null, category || null,
-       clampPct(pass_mark, 70), monthsOrNull(validity_months), !!shuffle_questions, nonNegInt(max_attempts), prereq, req.user.id]
+       clampPct(pass_mark, 70), monthsOrNull(validity_months),
+       // New courses shuffle unless the author says otherwise: an exam whose
+       // paper is identical every sitting is the weaker default.
+       shuffle_questions === undefined ? true : !!shuffle_questions,
+       nonNegInt(max_attempts), prereq,
+       nonNegInt(time_limit_minutes),
+       shuffle_options === undefined ? true : !!shuffle_options,
+       revealMode(reveal_answers),
+       req.user.id]
     );
     return res.status(201).json(rows[0]);
   } catch (e) { return res.status(500).json({ message: e.message }); }
@@ -75,6 +90,8 @@ const updateCourse = async (req, res) => {
       pass_mark: (v) => clampPct(v, 70), validity_months: (v) => monthsOrNull(v),
       shuffle_questions: (v) => !!v, max_attempts: (v) => nonNegInt(v),
       prerequisite_course_id: (v) => idOrNull(v),
+      time_limit_minutes: (v) => nonNegInt(v), shuffle_options: (v) => !!v,
+      reveal_answers: (v) => revealMode(v),
     };
     for (const [k, f] of Object.entries(fmt)) {
       if (req.body[k] !== undefined) { sets.push(`${k}=$${i++}`); vals.push(f(req.body[k])); }
