@@ -52,7 +52,8 @@ const revealMode = (v) => (REVEAL_MODES.has(String(v)) ? String(v) : "on_pass");
 
 const createCourse = async (req, res) => {
   const { title, description, category, pass_mark, validity_months, shuffle_questions, max_attempts,
-          prerequisite_course_id, time_limit_minutes, shuffle_options, reveal_answers } = req.body;
+          prerequisite_course_id, time_limit_minutes, shuffle_options, reveal_answers,
+          abandon_counts } = req.body;
   if (!title?.trim()) return res.status(400).json({ message: "Title is required" });
   try {
     const prereq = idOrNull(prerequisite_course_id);
@@ -60,8 +61,8 @@ const createCourse = async (req, res) => {
       return res.status(400).json({ message: "Prerequisite course not found" });
     const { rows } = await pool.query(
       `INSERT INTO courses (org_id, title, description, category, pass_mark, validity_months, shuffle_questions,
-                            max_attempts, prerequisite_course_id, time_limit_minutes, shuffle_options, reveal_answers, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+                            max_attempts, prerequisite_course_id, time_limit_minutes, shuffle_options, reveal_answers, abandon_counts, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
       [req.user.org_id, title.trim(), description || null, category || null,
        clampPct(pass_mark, 70), monthsOrNull(validity_months),
        // New courses shuffle unless the author says otherwise: an exam whose
@@ -71,6 +72,7 @@ const createCourse = async (req, res) => {
        nonNegInt(time_limit_minutes),
        shuffle_options === undefined ? true : !!shuffle_options,
        revealMode(reveal_answers),
+       abandon_counts === undefined ? true : !!abandon_counts,
        req.user.id]
     );
     return res.status(201).json(rows[0]);
@@ -91,7 +93,7 @@ const updateCourse = async (req, res) => {
       shuffle_questions: (v) => !!v, max_attempts: (v) => nonNegInt(v),
       prerequisite_course_id: (v) => idOrNull(v),
       time_limit_minutes: (v) => nonNegInt(v), shuffle_options: (v) => !!v,
-      reveal_answers: (v) => revealMode(v),
+      reveal_answers: (v) => revealMode(v), abandon_counts: (v) => !!v,
     };
     for (const [k, f] of Object.entries(fmt)) {
       if (req.body[k] !== undefined) { sets.push(`${k}=$${i++}`); vals.push(f(req.body[k])); }

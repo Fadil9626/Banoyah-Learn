@@ -7,6 +7,7 @@ const path = require("path");
 const migrate = require("./db/migrate");
 const pool = require("./config/db");
 const scheduler = require("./lib/scheduler");
+const examSweeper = require("./lib/examSweeper");
 
 const app = express();
 
@@ -72,6 +73,7 @@ migrate()
   .then(() => {
     const server = app.listen(PORT, () => console.log(`✅ Banoyah Learn API running on port ${PORT}`));
     scheduler.start();
+    examSweeper.start();
 
     // Graceful shutdown: on a container SIGTERM (scale-down/redeploy) or Ctrl-C,
     // stop the reminder loop, let in-flight requests drain, close the DB pool,
@@ -82,6 +84,7 @@ migrate()
       shuttingDown = true;
       console.info(`${signal} received — shutting down gracefully…`);
       scheduler.stop();
+      examSweeper.stop();
       server.close(async () => {
         try { await pool.end(); } catch (e) { console.error("Pool close error:", e.message); }
         console.log("HTTP server closed. Bye.");

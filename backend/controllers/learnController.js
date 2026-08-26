@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const pool = require("../config/db");
+const examSweeper = require("../lib/examSweeper");
 const { certificatePDF } = require("../lib/pdf");
 const audit = require("../lib/audit");
 const webhooks = require("../lib/webhooks");
@@ -141,6 +142,10 @@ const startQuiz = async (req, res) => {
     )).rows[0];
     if (!enr) return res.status(400).json({ message: "Enrol in this course first" });
 
+    // A sitting they walked away from is settled here, before the attempt limit
+    // is counted — so the walk-away is what it should be: a used attempt.
+    await examSweeper.sweep({ enrollmentId: enr.id, graceSeconds: 30 });
+
     if (course.max_attempts > 0 && enr.status !== "passed") {
       const used = Number((await pool.query(
         "SELECT COUNT(*) FROM attempts WHERE enrollment_id=$1", [enr.id])).rows[0].count);
@@ -231,7 +236,9 @@ const submitQuiz = async (req, res) => {
     // Thirty seconds of slack: a paper submitted as the clock runs out should
     // not be lost to the round trip. Anything beyond that had the extra time.
     if (session.expires_at && Date.now() > new Date(session.expires_at).getTime() + 30_000) {
-      await pool.query("UPDATE quiz_sessions SET submitted_at=NOW() WHERE id=$1", [session.id]);
+      // Same settlement as an abandoned sitting — one place decides what
+      // running out of time costs.
+      await examSweeper.sweep({ enrollmentId: enr.id, graceSeconds: 30 });
       return res.status(408).json({
         message: "Time ran out before this was submitted. Start the quiz again when you are ready.",
         expired: true,

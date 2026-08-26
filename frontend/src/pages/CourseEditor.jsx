@@ -104,6 +104,7 @@ function DetailsTab({ course, onSaved }) {
     shuffle_options: course.shuffle_options ?? true,
     time_limit_minutes: course.time_limit_minutes ?? 0,
     reveal_answers: course.reveal_answers || "on_pass",
+    abandon_counts: course.abandon_counts ?? true,
     prerequisite_course_id: course.prerequisite_course_id ?? "",
   });
   const [busy, setBusy] = useState(false);
@@ -203,6 +204,21 @@ function DetailsTab({ course, onSaved }) {
             </p>
           </div>
         </div>
+
+        <button type="button" onClick={() => set("abandon_counts", !f.abandon_counts)}
+          className="w-full flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-surface-2/50 border border-line hover:bg-surface-2 transition text-left">
+          <span>
+            <span className="block text-sm font-semibold text-content">Walking out counts as an attempt</span>
+            <span className="block text-xs text-muted">
+              A timed sitting left unfinished is recorded as a failed attempt. Without
+              this, closing the tab is free — and the question bank can be read a
+              paper at a time.
+            </span>
+          </span>
+          <span className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${f.abandon_counts ? "bg-ok" : "bg-line"}`}>
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${f.abandon_counts ? "translate-x-5" : ""}`} />
+          </span>
+        </button>
 
         <div>
           <label className="label">Show the correct answers</label>

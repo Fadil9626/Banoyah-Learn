@@ -137,6 +137,18 @@ export default function CoursePlayer() {
               <ListChecks size={16} /> Take quiz
             </button>
             {!allLessonsDone && <p className="text-[11px] text-faint text-center mt-2">Finish all lessons to unlock the quiz.</p>}
+            {allLessonsDone && data.course.time_limit_minutes > 0 && (
+              <div className="mt-3 flex items-start gap-2.5 rounded-xl px-3.5 py-2.5 text-xs"
+                style={{ backgroundColor: "rgb(var(--warn) / 0.10)", color: "rgb(var(--warn))" }}>
+                <Timer size={14} className="flex-shrink-0 mt-0.5" />
+                <span>
+                  <strong>Timed: {data.course.time_limit_minutes} minutes.</strong> The clock
+                  starts when you press the button and keeps running if you close the page
+                  {data.course.abandon_counts !== false && ", and an unfinished sitting is recorded as a failed attempt"}.
+                  Your answers are sent in automatically when the time is up.
+                </span>
+              </div>
+            )}
             {allLessonsDone && data.attempts_left != null && (
               <p className={`text-[11px] text-center mt-2 ${data.can_attempt === false ? "text-danger" : "text-faint"}`}>
                 {data.can_attempt === false ? "No attempts remaining." : `${data.attempts_left} attempt${data.attempts_left === 1 ? "" : "s"} left`}
