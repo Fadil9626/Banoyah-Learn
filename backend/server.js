@@ -56,6 +56,7 @@ app.use("/api/media", require("./routes/media"));
 app.use("/api/assignments", require("./routes/assignments"));
 app.use("/api/audit", require("./routes/audit"));
 app.use("/api/webhooks", require("./routes/webhooks"));
+app.use("/api/practicals", require("./routes/practicals"));
 app.use("/api/v1", require("./routes/v1"));
 app.use("/api", require("./routes/authoring"));
 

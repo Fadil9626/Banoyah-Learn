@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, BookOpen, Award, Plug, BarChart3,
-  Settings, LogOut, Menu, X, GraduationCap, ScrollText, Building2,
+  Settings, LogOut, Menu, X, GraduationCap, ScrollText, Building2, Stethoscope,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import Brand from "./Brand";
@@ -16,6 +16,7 @@ const NAV = [
   { to: "/courses", label: "Courses", icon: BookOpen, roles: ["admin", "instructor"] },
   { to: "/certificates", label: "Certificates", icon: Award, roles: ["admin", "instructor"] },
   { to: "/reporting", label: "Reporting", icon: BarChart3, roles: ["admin", "instructor", "manager"] },
+  { to: "/practicals", label: "Practical results", icon: Stethoscope, roles: ["admin", "instructor", "manager"] },
   { to: "/api-access", label: "API access", icon: Plug, roles: ["admin"] },
   { to: "/audit", label: "Audit log", icon: ScrollText, roles: ["admin"] },
 ];

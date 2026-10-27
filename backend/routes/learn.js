@@ -3,6 +3,7 @@
 const express = require("express");
 const router = express.Router();
 const c = require("../controllers/learnController");
+const p = require("../controllers/practicalController");
 const { protect } = require("../middleware/auth");
 
 router.use(protect);
@@ -16,5 +17,10 @@ router.post("/courses/:id/enroll", c.enroll);
 router.post("/courses/:id/progress", c.markProgress);
 router.post("/courses/:id/quiz/start", c.startQuiz);
 router.post("/courses/:id/submit", c.submitQuiz);
+
+// The 3D practical: started per course, then driven one action at a time.
+router.post("/courses/:id/practical/start", p.start);
+router.get("/practical/:sid", p.get);
+router.post("/practical/:sid/act", p.act);
 
 module.exports = router;

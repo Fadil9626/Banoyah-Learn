@@ -2,6 +2,7 @@ const pool = require("../config/db");
 const audit = require("../lib/audit");
 const ai = require("../lib/ai");
 const media = require("../lib/media");
+const engine = require("../lib/practical/engine");
 
 // Load a course that belongs to the caller's org, or null.
 async function ownedCourse(orgId, courseId) {
@@ -94,6 +95,11 @@ const updateCourse = async (req, res) => {
       prerequisite_course_id: (v) => idOrNull(v),
       time_limit_minutes: (v) => nonNegInt(v), shuffle_options: (v) => !!v,
       reveal_answers: (v) => revealMode(v), abandon_counts: (v) => !!v,
+      // An unknown practical key clears it rather than pointing at nothing.
+      practical_key: (v) => (v && engine.get(String(v)) ? String(v) : null),
+      practical_pass_mark: (v) => clampPct(v, 85),          // the practical's own minimum; 0 = none
+      practical_weight: (v) => clampPct(v, 70),
+      final_pass_mark: (v) => clampPct(v, 80),
     };
     for (const [k, f] of Object.entries(fmt)) {
       if (req.body[k] !== undefined) { sets.push(`${k}=$${i++}`); vals.push(f(req.body[k])); }

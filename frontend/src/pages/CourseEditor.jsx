@@ -4,7 +4,7 @@ import { toast } from "react-hot-toast";
 import {
   ArrowLeft, Loader2, Save, Trash2, Plus, X, FileText, Video, File,
   ChevronUp, ChevronDown, Check, Globe, PencilLine, HelpCircle, Upload,
-  ClipboardCheck, UserPlus, Calendar, Sparkles, Lock,
+  ClipboardCheck, UserPlus, Calendar, Sparkles, Lock, Stethoscope,
 } from "lucide-react";
 import api, { getToken } from "../lib/api";
 import { StatusChip } from "./Courses";
@@ -106,15 +106,21 @@ function DetailsTab({ course, onSaved }) {
     reveal_answers: course.reveal_answers || "on_pass",
     abandon_counts: course.abandon_counts ?? true,
     prerequisite_course_id: course.prerequisite_course_id ?? "",
+    practical_key: course.practical_key || "",
+    practical_pass_mark: course.practical_pass_mark ?? 70,
+    practical_weight: course.practical_weight ?? 70,
+    final_pass_mark: course.final_pass_mark ?? 80,
   });
   const [busy, setBusy] = useState(false);
   const [others, setOthers] = useState([]);
+  const [scenarios, setScenarios] = useState([]);
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
 
   useEffect(() => {
     api("courses")
       .then((all) => setOthers(all.filter((c) => c.id !== course.id)))
       .catch(() => setOthers([]));
+    api("practicals/scenarios").then(setScenarios).catch(() => setScenarios([]));
   }, [course.id]);
 
   const save = async () => {
@@ -162,6 +168,56 @@ function DetailsTab({ course, onSaved }) {
           {others.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
         </select>
         <p className="text-[11px] text-faint mt-1">Learners must pass this course before they can open the current one.</p>
+      </div>
+
+      {/* 3D practical */}
+      <div className="pt-4 mt-1 border-t border-line">
+        <p className="text-[10px] font-black uppercase tracking-widest text-faint flex items-center gap-1.5 mb-4"><Stethoscope size={12} /> 3D practical exam</p>
+        <label className="label" htmlFor="practical-key">Practical</label>
+        <select id="practical-key" className="input" value={f.practical_key} onChange={(e) => set("practical_key", e.target.value)}>
+          <option value="">None. The quiz alone certifies.</option>
+          {scenarios.map((s) => <option key={s.key} value={s.key}>{s.title}</option>)}
+        </select>
+        <p className="text-[11px] text-faint mt-1">
+          {f.practical_key
+            ? (scenarios.find((s) => s.key === f.practical_key)?.description || "") + " Passing the quiz unlocks it."
+            : "Add a hands-on scenario after the quiz. Passing the quiz unlocks it, and the certificate comes from the combined mark."}
+        </p>
+        {f.practical_key && (() => {
+          const w = Math.min(100, Math.max(0, Number(f.practical_weight) || 0));
+          return (
+            <div className="mt-4 space-y-4">
+              <div>
+                <div className="flex items-baseline justify-between gap-3">
+                  <label className="label" htmlFor="practical-weight">How the final mark is made up</label>
+                  <span className="text-xs tabular-nums text-muted">Theory <b className="text-content">{100 - w}%</b> · Practical <b className="text-content">{w}%</b></span>
+                </div>
+                <input id="practical-weight" type="range" min="0" max="100" step="5" value={w}
+                  onChange={(e) => set("practical_weight", e.target.value)} className="w-full accent-[rgb(var(--brand))]" />
+                <div className="h-2 rounded-full overflow-hidden flex mt-1" aria-hidden="true">
+                  <span style={{ width: `${100 - w}%`, background: "rgb(var(--brand-2))" }} />
+                  <span style={{ width: `${w}%`, background: "rgb(var(--brand))" }} />
+                </div>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="label" htmlFor="final-pass">Final pass mark</label>
+                  <input id="final-pass" className="input" type="number" min="0" max="100" value={f.final_pass_mark} onChange={(e) => set("final_pass_mark", e.target.value)} />
+                  <p className="text-[11px] text-faint mt-1">The combined mark needed for the certificate.</p>
+                </div>
+                <div>
+                  <label className="label" htmlFor="practical-pass">Practical minimum</label>
+                  <input id="practical-pass" className="input" type="number" min="0" max="100" value={f.practical_pass_mark} onChange={(e) => set("practical_pass_mark", e.target.value)} />
+                  <p className="text-[11px] text-faint mt-1">0 = none. Stops a strong quiz carrying a weak practical.</p>
+                </div>
+              </div>
+              <p className="text-xs text-muted rounded-xl bg-surface-2 px-3 py-2">
+                Example: a quiz of 80 and a practical of 90 gives {Math.round((80 * (100 - w) + 90 * w) / 100)}.
+                A critical safety error in the practical fails the attempt whatever the marks.
+              </p>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Quiz options */}

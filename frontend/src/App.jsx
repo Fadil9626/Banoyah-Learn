@@ -26,6 +26,9 @@ const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
 const ResetPassword  = lazy(() => import("./pages/ResetPassword"));
 const Sso            = lazy(() => import("./pages/Sso"));
 const CourseHandout  = lazy(() => import("./pages/CourseHandout"));
+const PracticalPlayer = lazy(() => import("./pages/PracticalPlayer"));
+const PracticalResults = lazy(() => import("./pages/PracticalResults"));
+const PracticalResult  = lazy(() => import("./pages/PracticalResult"));
 
 function PageLoader() {
   return (
@@ -94,6 +97,8 @@ export default function App() {
 
         {/* Authenticated, chrome-free printable handout */}
         <Route path="/learn/:id/handout" element={<RequireAuthBare><CourseHandout /></RequireAuthBare>} />
+        {/* The 3D practical takes the whole screen */}
+        <Route path="/learn/:id/practical" element={<RequireAuthBare><PracticalPlayer /></RequireAuthBare>} />
 
         {/* Anyone signed in (Layout mounted once) */}
         <Route element={<ProtectedLayout />}>
@@ -110,6 +115,8 @@ export default function App() {
         <Route element={<ProtectedLayout allowedRoles={OVERSIGHT} />}>
           <Route path="/people" element={<People />} />
           <Route path="/reporting" element={<Reporting />} />
+          <Route path="/practicals" element={<PracticalResults />} />
+          <Route path="/practicals/:id" element={<PracticalResult />} />
         </Route>
 
         {/* Authoring: admin + instructor */}

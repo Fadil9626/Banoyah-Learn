@@ -4,7 +4,7 @@ import { toast } from "react-hot-toast";
 import {
   ArrowLeft, Loader2, CheckCircle2, Circle, FileText, Video, File,
   ChevronRight, Award, RotateCcw, X, Check, ListChecks, AlertTriangle,
-  Maximize2, Minimize2, Download, ExternalLink, Timer, EyeOff,
+  Maximize2, Minimize2, Download, ExternalLink, Timer, EyeOff, Stethoscope, Lock, ShieldAlert,
 } from "lucide-react";
 import api from "../lib/api";
 import LessonContent from "../components/LessonContent";
@@ -87,6 +87,7 @@ export default function CoursePlayer() {
   if (mode === "result")
     return <Result result={result} course={data.course}
       onRetry={() => beginQuiz()} onClose={() => navigate("/learn")}
+      onPractical={() => navigate(`/learn/${id}/practical?mode=practice`)}
       onCertificate={(serial) => navigate(`/learn/certificate/${serial}`)} />;
 
   // ── Learn mode ──
@@ -155,6 +156,7 @@ export default function CoursePlayer() {
               </p>
             )}
           </div>
+          {data.practical && <PracticalCard p={data.practical} onGo={(m) => navigate(`/learn/${id}/practical?mode=${m}`)} />}
         </aside>
 
         {/* Lesson content */}
@@ -211,6 +213,37 @@ export default function CoursePlayer() {
 }
 
 const Empty = ({ label }) => <div className="text-sm text-faint bg-surface-2 rounded-xl p-6 text-center">{label}</div>;
+
+// The 3D practical that ends the course: locked until the quiz is passed, then
+// practice runs (feedback as you go) and the exam (feedback at the end, and the
+// certificate on a pass).
+function PracticalCard({ p, onGo }) {
+  const last = p.last_exam, open = (m) => p.open?.some((o) => o.mode === m);
+  return (
+    <div className="p-3 mt-1 border-t border-line">
+      <p className="flex items-center gap-2 text-sm font-semibold text-content"><Stethoscope size={15} className="text-brand" /> 3D practical</p>
+      <p className="text-[11px] text-muted mt-1">{p.description}</p>
+      <div className="mt-2 rounded-lg bg-surface-2 px-2.5 py-2 text-[11px] text-muted">
+        <p className="font-semibold text-content">Final mark: {p.theory_weight > 0 ? `quiz ${p.theory_weight}% + practical ${p.weight}%` : "the practical"}</p>
+        <p className="mt-0.5">Pass at {p.final_pass_mark}{p.practical_min > 0 ? `, with at least ${p.practical_min} in the practical` : ""}. A critical safety error fails it whatever the marks.</p>
+      </div>
+      {!p.unlocked ? (
+        <p className="flex items-center gap-1.5 text-[11px] text-faint mt-3"><Lock size={12} /> Pass the quiz to unlock it.</p>
+      ) : (
+        <div className="flex flex-col gap-2 mt-3">
+          <button onClick={() => onGo("practice")} className="btn-ghost w-full">{open("practice") ? "Resume practice" : "Practise"}</button>
+          <button onClick={() => onGo("exam")} className="btn-brand w-full">{open("exam") ? "Resume the exam" : "Take the exam"}</button>
+          {last && (
+            <p className={`text-[11px] text-center flex items-center justify-center gap-1 ${last.passed ? "text-ok" : "text-danger"}`}>
+              {last.critical && !last.passed && <ShieldAlert size={12} />}
+              Last exam: final {last.final_score ?? last.score}/100 · {last.passed ? "passed" : last.critical ? "critical error" : "not passed"}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Inline PDF lesson: the document embeds right in the page via the browser's
 // native PDF viewer (same-origin iframe), with download + open-in-tab actions.
@@ -380,8 +413,8 @@ function Quiz({ course, sitting, onCancel, onDone }) {
 }
 
 // ── Result ────────────────────────────────────────────────────────────────────
-function Result({ result, course, onRetry, onClose, onCertificate }) {
-  const { passed, score, pass_mark, correct, total, review, attempts_left, answers_hidden } = result;
+function Result({ result, course, onRetry, onClose, onCertificate, onPractical }) {
+  const { passed, score, pass_mark, correct, total, review, attempts_left, answers_hidden, practical_next } = result;
   const noAttempts = attempts_left === 0;
   return (
     <div className="max-w-lg mx-auto pt-6">
@@ -390,7 +423,7 @@ function Result({ result, course, onRetry, onClose, onCertificate }) {
           style={{ backgroundColor: passed ? "rgb(var(--ok) / 0.12)" : "rgb(var(--danger) / 0.12)" }}>
           {passed ? <Award size={40} /> : <RotateCcw size={36} />}
         </div>
-        <h1 className="text-2xl font-black text-content mt-5">{passed ? "Congratulations!" : "Not quite there"}</h1>
+        <h1 className="text-2xl font-black text-content mt-5">{practical_next ? "Quiz passed" : passed ? "Congratulations!" : "Not quite there"}</h1>
         <p className="text-muted mt-1">
           You scored <strong className="text-content">{score}%</strong> ({correct}/{total}) · pass mark {pass_mark}%
         </p>
@@ -449,7 +482,18 @@ function Result({ result, course, onRetry, onClose, onCertificate }) {
         </div>
       )}
 
+      {practical_next && (
+        <div className="mt-8 card p-4 flex items-start gap-3">
+          <Stethoscope size={18} className="text-brand mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-content">The 3D practical is unlocked</p>
+            <p className="text-xs text-muted mt-0.5">This course certifies from the practical. Practise as often as you like, then take the exam to earn the certificate.</p>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col gap-2.5 mt-8">
+        {practical_next && <button onClick={onPractical} className="btn-brand"><Stethoscope size={16} /> Go to the 3D practical</button>}
         {passed && result.certificate && (
           <button onClick={() => onCertificate(result.certificate.serial)} className="btn-brand">
             <Award size={16} /> View certificate

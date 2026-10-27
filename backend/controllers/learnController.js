@@ -1,12 +1,8 @@
-const crypto = require("crypto");
 const pool = require("../config/db");
 const examSweeper = require("../lib/examSweeper");
 const { certificatePDF } = require("../lib/pdf");
-const audit = require("../lib/audit");
-const webhooks = require("../lib/webhooks");
-
-// Short, human-ish unique certificate serial, e.g. BL-7F3A9C2E.
-const makeSerial = () => "BL-" + crypto.randomBytes(4).toString("hex").toUpperCase();
+const certificates = require("../lib/certificates");
+const engine = require("../lib/practical/engine");
 
 // Fisher–Yates shuffle (returns a new array).
 function shuffle(arr) {
@@ -87,7 +83,8 @@ const getForLearner = async (req, res) => {
       : 0;
     const passed = enrollment?.status === "passed";
     const attempts_left = course.max_attempts > 0 ? Math.max(0, course.max_attempts - attempts_used) : null;
-    return res.json({ course, lessons, question_count, enrollment, certificate, attempts_used, attempts_left, can_attempt: passed || attempts_left === null || attempts_left > 0 });
+    const practical = await practicalInfo(course, enrollment, question_count);
+    return res.json({ course, lessons, question_count, enrollment, certificate, attempts_used, attempts_left, can_attempt: passed || attempts_left === null || attempts_left > 0, practical });
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 
@@ -275,33 +272,20 @@ const submitQuiz = async (req, res) => {
     // happen, and the next attempt must get a freshly shuffled paper.
     await pool.query("UPDATE quiz_sessions SET submitted_at=NOW() WHERE id=$1", [session.id]);
     const best = Math.max(score, enr.best_score ?? 0);
+    // With a practical still to come, a passed quiz leaves the course in progress
+    // (unless the practical is already passed and this is a retake).
+    const status = !passed ? "failed"
+      : !course.practical_key || enr.status === "passed" ? "passed" : "in_progress";
     await pool.query(
       "UPDATE enrollments SET status=$1, best_score=$2, updated_at=NOW() WHERE id=$3",
-      [passed ? "passed" : "failed", best, enr.id]
+      [status, best, enr.id]
     );
 
+    // A course that ends in a 3D practical certifies from the practical: passing
+    // the quiz unlocks it, and nothing more.
+    const practicalNext = passed && !!course.practical_key;
     let certificate = null;
-    if (passed) {
-      const until = course.validity_months
-        ? new Date(Date.now() + course.validity_months * 30 * 86400000).toISOString()
-        : null;
-      certificate = (await pool.query(
-        `INSERT INTO certificates (org_id, user_id, course_id, serial, score, certified_until)
-         VALUES ($1,$2,$3,$4,$5,$6)
-         ON CONFLICT (user_id, course_id)
-         DO UPDATE SET score=EXCLUDED.score, certified_until=EXCLUDED.certified_until,
-                       issued_at=NOW(), last_reminder_day=NULL
-         RETURNING *`,
-        [req.user.org_id, req.user.id, course.id, makeSerial(), score, until]
-      )).rows[0];
-      audit.record(req, "certificate.issue", { target: course.title, details: { score, serial: certificate.serial } });
-      const ext = (await pool.query("SELECT external_id FROM users WHERE id=$1", [req.user.id])).rows[0]?.external_id || null;
-      webhooks.emit(req.user.org_id, "certification.completed", {
-        external_id: ext, learner: req.user.name, user_id: req.user.id,
-        course: course.title, course_id: course.id, serial: certificate.serial,
-        score, certified_until: certificate.certified_until,
-      });
-    }
+    if (passed && !practicalNext) certificate = await certificates.issue(req, course, score);
 
     const used = Number((await pool.query("SELECT COUNT(*) FROM attempts WHERE enrollment_id=$1", [enr.id])).rows[0].count);
     const attempts_left = course.max_attempts > 0 ? Math.max(0, course.max_attempts - used) : null;
@@ -315,6 +299,7 @@ const submitQuiz = async (req, res) => {
 
     return res.json({
       score, passed, pass_mark: course.pass_mark, correct, total: questions.length,
+      practical_next: practicalNext,
       review: reveal ? review : undefined,
       answers_hidden: !reveal,
       certificate, attempts_left,
@@ -392,6 +377,30 @@ async function loadBrand(orgId) {
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
+// The 3D practical that ends a course, as the learner sees it: whether it is
+// unlocked (the quiz passed, or there is no quiz), and how their exam went.
+async function practicalInfo(course, enrollment, questionCount) {
+  const sc = course.practical_key ? engine.get(course.practical_key) : null;
+  if (!sc) return null;
+  const unlocked = !!enrollment && (questionCount === 0 || await quizPassed(enrollment.id));
+  const last = enrollment ? (await pool.query(
+    `SELECT id, score, final_score, passed, critical, finished_at FROM practical_sessions
+     WHERE enrollment_id=$1 AND mode='exam' AND finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1`, [enrollment.id]
+  )).rows[0] || null : null;
+  const open = enrollment ? (await pool.query(
+    `SELECT id, mode FROM practical_sessions WHERE enrollment_id=$1 AND finished_at IS NULL ORDER BY id DESC`, [enrollment.id]
+  )).rows : [];
+  const weight = questionCount > 0 ? course.practical_weight : 100;
+  return {
+    key: sc.key, title: sc.title, description: sc.description, unlocked, last_exam: last, open,
+    weight, theory_weight: 100 - weight, final_pass_mark: course.final_pass_mark, practical_min: course.practical_pass_mark,
+  };
+}
+async function quizPassed(enrollmentId) {
+  const { rows } = await pool.query("SELECT EXISTS (SELECT 1 FROM attempts WHERE enrollment_id=$1 AND passed) AS ok", [enrollmentId]);
+  return rows[0].ok;
+}
+
 async function publishedCourse(orgId, courseId) {
   const { rows } = await pool.query(
     "SELECT * FROM courses WHERE id=$1 AND org_id=$2 AND status='published'", [courseId, orgId]
@@ -423,4 +432,8 @@ async function ensureEnrollment(user, courseId) {
   return rows[0];
 }
 
-module.exports = { catalog, enroll, getForLearner, markProgress, startQuiz, submitQuiz, myLearning, getCertificate, downloadCertificate };
+module.exports = {
+  catalog, enroll, getForLearner, markProgress, startQuiz, submitQuiz, myLearning, getCertificate, downloadCertificate,
+  // shared with the practical controller
+  publishedCourse, prerequisiteBlock, ensureEnrollment, quizPassed,
+};

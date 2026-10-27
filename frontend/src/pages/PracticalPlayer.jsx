@@ -1,0 +1,467 @@
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { toast } from "react-hot-toast";
+import { ArrowLeft, Award, Loader2, RotateCcw, ShieldAlert, Timer, CheckCircle2, XCircle } from "lucide-react";
+import api from "../lib/api";
+import { createBay, FIRST_VIEW } from "../practical/bay";
+import Timeline from "../components/PracticalTimeline";
+import FinalMark from "../components/FinalMark";
+
+// The 3D practical. The server runs it: every click goes up as an action and a
+// fresh view of the run comes back. This page draws that view and nothing else.
+
+// The camera buttons for each room.
+const VIEW_NAMES = {
+  phlebotomy: [["patient", "Patient"], ["wide", "Bay"], ["bench", "Bench"], ["rack", "Tubes"]],
+  reception: [["nurse", "Nurse"], ["counter", "Counter"], ["close", "Close-up"], ["phone", "Phone"]],
+};
+const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
+export default function PracticalPlayer() {
+  const { id } = useParams();
+  const [params] = useSearchParams();
+  const mode = params.get("mode") === "practice" ? "practice" : "exam";
+  const navigate = useNavigate();
+  const [run, setRun] = useState(null);          // { session_id, mode, view, rules, course }
+  const [result, setResult] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState(null);        // { kind, msg }
+  const [camera, setCamera] = useState(null);
+  const [kind, setKind] = useState(null);        // which room: the scenario says
+  const [selLabel, setSelLabel] = useState(null);
+  const [tq, setTq] = useState(null);            // seconds the tourniquet has been on
+  const stageRef = useRef(null), bayRef = useRef(null), runRef = useRef(null), tqBase = useRef(null), noteTimer = useRef(0);
+  const queue = useRef(Promise.resolve()), pending = useRef(0);
+
+  const tell = useCallback((n) => {
+    clearTimeout(noteTimer.current); setNote(n);
+    if (n) noteTimer.current = setTimeout(() => setNote(null), n.kind === "info" ? 3000 : 6500);
+  }, []);
+
+  // Apply a fresh view from the server: the bay, the camera, the tourniquet clock.
+  const apply = useCallback((r, prev) => {
+    runRef.current = r;
+    setRun(r);
+    const v = r.view, bay = bayRef.current;
+    setKind(v.scenario.bay || "phlebotomy");
+    bay?.sync(v);
+    const was = prev?.view, speaker = v.current?.speaker || v.patient.name, anchor = v.current?.anchor || null;
+    if (!was || was.current?.id !== v.current?.id) {
+      if (v.current) setTimeout(() => bay?.setView(v.current.view), was ? 450 : 0);
+      if (v.current?.say) bay?.say(v.current.say, "patient", speaker, anchor);
+    }
+    // What you said, then the answer a moment later, as bubbles in the bay.
+    if (v.current?.picked && !was?.current?.picked) {
+      bay?.say(v.current.picked.text, "you");
+      setTimeout(() => bay?.say(v.current.picked.reply, "patient", speaker, anchor), 1100);
+    }
+    if (v.current?.id === "draw" && v.flags.needle && !was?.flags?.needle) setTimeout(() => bay?.setView("rack"), 500);
+    tqBase.current = v.tq_elapsed == null ? null : { at: performance.now(), s: v.tq_elapsed };
+    setTq(v.tq_elapsed);
+  }, []);
+
+  const begin = useCallback(async () => {
+    setResult(null); setSelLabel(null); tell(null);
+    try {
+      const r = await api(`learn/courses/${id}/practical/start`, { method: "POST", body: JSON.stringify({ mode }) });
+      apply(r, null);
+    } catch (e) { toast.error(e.message); navigate(`/learn/${id}`); }
+  }, [id, mode, apply, navigate, tell]);
+
+  // The room is built once the first run says which one it is, and lives as long
+  // as the page; runs come and go inside it.
+  useEffect(() => {
+    if (!kind) return undefined;
+    const bay = createBay(stageRef.current, { kind, onPick: (obj) => send({ type: "pick", id: obj }), onView: setCamera });
+    bayRef.current = bay;
+    setCamera(FIRST_VIEW[kind]);
+    const v = runRef.current?.view;
+    if (v) {
+      bay.sync(v);
+      if (v.current) bay.setView(v.current.view);
+      if (v.current?.say) bay.say(v.current.say, "patient", v.current.speaker || v.patient.name, v.current.anchor);
+    }
+    return () => { bay.dispose(); bayRef.current = null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind]);
+  useEffect(() => { begin(); }, [begin]);
+
+  // Clicks queue up and go to the server one at a time, in the order they were
+  // made: a quick second click is neither lost nor applied out of turn.
+  function send(action) {
+    pending.current++; setBusy(true);
+    const p = queue.current.then(() => sendNow(action)).finally(() => { if (--pending.current === 0) setBusy(false); });
+    queue.current = p.catch(() => {});
+    return p;
+  }
+  async function sendNow(action) {
+    const r = runRef.current;
+    if (!r || r.view.done) return;
+    try {
+      const out = await api(`learn/practical/${r.session_id}/act`, { method: "POST", body: JSON.stringify({ action }) });
+      const next = { ...r, view: out.view };
+      apply(next, r);
+      const fb = out.feedback || [];
+      const worst = fb.find((f) => f.kind === "crit") || fb.find((f) => f.kind === "warn") || fb[0];
+      if (worst) tell(worst);
+      if (out.result) setTimeout(() => setResult(out.result), 900);
+    } catch (e) { tell({ kind: "info", msg: e.message }); }
+  }
+
+  // The tourniquet clock counts on from the server's figure between actions.
+  useEffect(() => {
+    if (tq == null) return;
+    const t = setInterval(() => { const b = tqBase.current; if (b) setTq(b.s + (performance.now() - b.at) / 1000); }, 500);
+    return () => clearInterval(t);
+  }, [tq == null]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const v = run?.view, cur = v?.current;
+  const initials = v ? v.patient.name.split(" ").map((w) => w[0]).join("") : "";
+
+  return (
+    <div className="min-h-screen bg-bg text-content flex flex-col">
+      <header className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 sm:px-6 py-3 border-b border-line">
+        <button onClick={() => navigate(`/learn/${id}`)} className="flex items-center gap-1.5 text-sm text-muted hover:text-content">
+          <ArrowLeft size={16} /> Course
+        </button>
+        <div className="min-w-0">
+          <p className="text-[11px] uppercase tracking-widest text-faint">{v?.scenario.title || "3D practical"}</p>
+          <p className="text-sm font-bold truncate">{run?.course?.title}</p>
+        </div>
+        <span className={`text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full ${mode === "exam" ? "bg-brand text-brand-fg" : "bg-surface-2 text-muted border border-line"}`}>
+          {mode === "exam" ? "Exam · feedback at the end" : "Practice · feedback as you go"}
+        </span>
+        {v && (
+          <ol className="flex gap-1 overflow-x-auto flex-1 min-w-0 justify-end" aria-label="Steps">
+            {v.steps.map((s, i) => {
+              const on = !v.done && i === v.step, done = v.done || i < v.step;
+              return (
+                <li key={s} aria-current={on ? "step" : undefined}
+                  className={`flex items-center gap-1.5 whitespace-nowrap text-xs rounded-full border px-2 py-1 ${on ? "border-brand text-content font-bold" : "border-line text-faint"}`}>
+                  <span className={`w-4 h-4 rounded-full grid place-items-center text-[10px] ${on ? "bg-brand text-brand-fg" : done ? "bg-brand/15 text-brand" : "bg-surface-2"}`}>{done ? "✓" : i + 1}</span>
+                  {s}
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </header>
+
+      <main className="flex-1 grid lg:grid-cols-[minmax(0,1fr)_340px] gap-4 p-4 sm:p-6 min-h-0">
+        <section className="flex flex-col gap-4 min-w-0">
+          <div className="relative rounded-2xl overflow-hidden border border-line h-[52vh] lg:h-auto lg:flex-1 lg:min-h-[420px]" style={{ background: "#dbe4e2" }}>
+            <div ref={stageRef} className="absolute inset-0" aria-label={kind === "reception" ? "The specimen reception counter in 3D. Click a sample to pick it up." : "The phlebotomy bay in 3D. Click equipment to use it."} />
+            <div className="absolute top-2.5 right-2.5 flex gap-0.5 p-1 rounded-xl z-10" style={{ background: "rgba(16,28,30,.78)" }} role="group" aria-label="Camera">
+              {(VIEW_NAMES[kind] || []).map(([k, label]) => (
+                <button key={k} onClick={() => bayRef.current?.setView(k)} aria-pressed={camera === k} disabled={k === "close" && !v?.selected}
+                  className="text-xs px-2.5 py-1 rounded-lg disabled:opacity-40" style={camera === k ? { background: "#e5f1ef", color: "#0f2a2c", fontWeight: 700 } : { color: "#e5f1ef" }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {tq != null && (
+              <div className="absolute top-2.5 left-2.5 z-10 flex items-center gap-1.5 text-xs font-bold tabular-nums text-white px-2.5 py-1.5 rounded-full"
+                style={{ background: tq > v.tq_limit ? "#b3261e" : tq > v.tq_limit - 15 ? "#b06a12" : "rgba(16,28,30,.85)" }}>
+                <Timer size={13} /> Tourniquet on · {mmss(tq)}
+              </div>
+            )}
+            {note && (
+              <div role="status" className="absolute left-2.5 right-2.5 bottom-2.5 z-10 max-w-xl text-[13px] text-white px-3 py-2.5 rounded-xl"
+                style={{ background: "rgba(16,28,30,.93)", borderLeft: `4px solid ${note.kind === "crit" ? "#ff6b5f" : note.kind === "warn" ? "#f0a55c" : "#45bfbd"}` }}>
+                {note.kind !== "info" && <p className="text-[10px] font-bold uppercase tracking-widest text-white/70 mb-0.5">{note.kind === "crit" ? "Critical error" : "Points lost"}</p>}
+                {note.msg}
+              </div>
+            )}
+            {busy && <Loader2 className="absolute bottom-3 right-3 z-10 animate-spin text-white/80" size={18} />}
+          </div>
+
+          <div className="card p-4 sm:p-5 flex flex-col gap-3" aria-live="polite">
+            {!v ? <Loader2 className="animate-spin text-muted" /> : cur ? (
+              <>
+                <div className="flex justify-between text-[11px] uppercase tracking-widest text-faint">
+                  <span>Step {v.step + 1} of {v.steps.length}</span>
+                </div>
+                <h2 className="text-lg font-bold">{cur.name}</h2>
+                {cur.type === "talk" && (
+                  <>
+                    {cur.say ? <Say who={cur.speaker || v.patient.name} initials={cur.anchor === "phone" ? "Tel" : initials} text={cur.say} /> : <p className="text-sm text-muted">The patient has gone.</p>}
+                    {cur.choices ? (
+                      <>
+                        <p className="text-xs text-muted">What do you say?</p>
+                        <div className="flex flex-col gap-2">
+                          {cur.choices.map((c, i) => (
+                            <button key={c.id} disabled={busy} onClick={() => send({ type: "say", choice: c.id })}
+                              className="grid grid-cols-[24px_1fr] gap-2.5 items-start text-left text-sm rounded-xl border border-line px-3 py-2.5 hover:border-brand transition disabled:opacity-60">
+                              <span className="w-6 h-6 rounded-md grid place-items-center text-[11px] font-bold bg-surface-2">{"ABCD"[i]}</span>
+                              <span>{c.text}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    ) : cur.picked && (
+                      <>
+                        <Say who="You" initials="You" text={cur.picked.text} me />
+                        <Say who={cur.speaker || v.patient.name} initials={cur.anchor === "phone" ? "Tel" : initials} text={cur.picked.reply} />
+                        {cur.picked.leaves && <p className="text-xs text-muted">{v.patient.name} picks up {v.patient.female ? "her" : "his"} bag and leaves.</p>}
+                        <button autoFocus disabled={busy} onClick={() => send({ type: "continue" })} className="btn-brand self-start">Continue</button>
+                      </>
+                    )}
+                  </>
+                )}
+                {(cur.type === "seq" || cur.type === "draw") && (
+                  <>
+                    <p className="text-[15px]">{cur.task}</p>
+                    <p className="text-xs text-muted">Click equipment in the bay to use it. Hover to see what something is; on a phone, tap once to name it and again to use it.</p>
+                  </>
+                )}
+                {cur.type === "inspect" && <Inspect v={v} task={cur.task} busy={busy} send={send} />}
+                {cur.type === "label" && (
+                  <>
+                    <p className="text-[15px]">{cur.task}</p>
+                    {v.flags.gone && <p className="text-xs text-muted">The patient has already gone, so there is no one to check the labels against. Finish anyway to see your record.</p>}
+                    <p className="text-xs text-muted">Printed labels</p>
+                    <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))" }}>
+                      {v.labels.map((L) => (
+                        <button key={L.id} disabled={L.used || busy} aria-pressed={selLabel === L.id}
+                          onClick={() => setSelLabel((s) => (s === L.id ? null : L.id))}
+                          className={`text-left rounded-md px-2.5 py-2 font-mono text-[11.5px] leading-snug flex flex-col disabled:opacity-35 ${selLabel === L.id ? "ring-2 ring-brand" : ""}`}
+                          style={{ background: "#ffffff", color: "#1f2522", border: "1px solid #cfc6ad" }}>
+                          <b className="text-[12.5px]">{L.name}</b>
+                          <span>DOB {L.dob}</span><span>{L.lab}</span><span>{L.short} · {L.test}</span>
+                          <span className="h-4 mt-1" style={{ background: "repeating-linear-gradient(90deg,#1f2522 0 2px,transparent 2px 3px,#1f2522 3px 4px,transparent 4px 7px,#1f2522 7px 10px,transparent 10px 11px)" }} />
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted">Your filled tubes</p>
+                    <div className="flex flex-wrap gap-2">
+                      {v.patient.tubes.map((t) => {
+                        const done = v.labelled[t];
+                        return (
+                          <button key={t} disabled={done || busy}
+                            onClick={() => { if (!selLabel) return tell({ kind: "info", msg: "Pick a label first, then the tube." }); send({ type: "label", label: selLabel, tube: t }).then(() => setSelLabel(null)); }}
+                            className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm ${done ? "border-ok" : "border-dashed border-line bg-surface-2"}`}>
+                            <span className="w-3 h-5 rounded-sm" style={{ background: v.tubes[t].cap, boxShadow: "inset 0 -9px 0 #7a1f1f" }} />
+                            {v.tubes[t].name} tube {done && <span className="text-[11px] font-bold text-ok">Labelled</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </>
+            ) : <p className="text-sm text-muted">Practical finished.</p>}
+          </div>
+        </section>
+
+        <aside className="flex flex-col gap-4 min-w-0">
+          {v && !v.samples && <RequestForm form={{ ...v.patient, dob: `${v.patient.dob}  (${v.patient.age} y)` }} />}
+          {v && !v.samples && <AtTheChair v={v} />}
+          {v?.samples && <SampleForm v={v} />}
+          {v?.samples && <AtTheCounter v={v} />}
+        </aside>
+      </main>
+
+      {result && v && (
+        <Result result={result} mode={mode} v={v}
+          onAgain={(m) => navigate(`/learn/${id}/practical?mode=${m}`, { replace: true })}
+          onRestart={begin}
+          onCourse={() => navigate(`/learn/${id}`)}
+          onCertificate={(serial) => navigate(`/learn/certificate/${serial}`)} />
+      )}
+    </div>
+  );
+}
+
+function Say({ who, initials, text, me }) {
+  return (
+    <div className="grid grid-cols-[34px_1fr] gap-2.5 items-start">
+      <span className={`w-[34px] h-[34px] rounded-full grid place-items-center text-[11px] font-bold ${me ? "bg-brand text-brand-fg" : "bg-surface-2 border border-line"}`}>{initials}</span>
+      <div className={`rounded-xl rounded-tl-sm px-3 py-2 text-sm ${me ? "bg-brand/10" : "bg-surface-2"}`}>
+        <span className="block text-[11px] text-muted">{who}</span>{text}
+      </div>
+    </div>
+  );
+}
+
+// The doctor's request, on paper: the thing everything gets checked against.
+function RequestForm({ form: P }) {
+  const hand = { fontFamily: '"Segoe Print", "Bradley Hand", "Comic Sans MS", cursive', color: "#1d3f8f" };
+  const all = ["FBC", "ESR", "FBG", "RBS", "HbA1c", "U&E", "LFT", "Lipids", "PT/INR", "APTT", "Malaria RDT", "HBsAg"];
+  return (
+    <div className="rounded-md px-4 py-3 text-[12.5px] shadow-card" style={{ background: "#fffdf5", color: "#1f2522", border: "1px solid #cfc6ad" }}>
+      <div className="flex justify-between items-baseline gap-2 pb-1.5 mb-2" style={{ borderBottom: "2px solid #1f2522" }}>
+        <b className="text-sm">Laboratory request</b><span className="text-[10px] uppercase tracking-widest">{P.clinic}</span>
+      </div>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 items-baseline">
+        {[["Patient", P.name], ["Date of birth", P.dob], ["Sex", P.sex], ["Lab no.", P.lab], ["Requested by", P.doctor]].map(([k, val]) => (
+          <React.Fragment key={k}>
+            <dt className="text-[10px] uppercase tracking-wider opacity-70">{k}</dt>
+            <dd className="m-0 text-[14px]" style={{ ...hand, borderBottom: "1px dotted #cfc6ad" }}>{val}</dd>
+          </React.Fragment>
+        ))}
+      </dl>
+      <p className="mt-3 mb-1 text-[10px] uppercase tracking-widest font-bold">Tests requested</p>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+        {all.map((t) => (
+          <span key={t} className="flex items-center gap-1.5 text-xs">
+            <i className="not-italic w-3 h-3 grid place-items-center leading-none" style={{ border: "1.5px solid #1f2522", ...hand, fontSize: 14 }}>{P.ticks.includes(t) ? "✓" : ""}</i>{t}
+          </span>
+        ))}
+      </div>
+      <p className="mt-3 mb-1 text-[10px] uppercase tracking-widest font-bold">Clinical notes</p>
+      <p className="m-0 text-[14px] leading-snug" style={hand}>{P.notes}</p>
+    </div>
+  );
+}
+
+function AtTheChair({ v }) {
+  const f = v.flags, items = [];
+  if (f.hands) items.push(["Hands cleaned"]); if (f.gloves) items.push(["Gloves on"]);
+  if (f.tq) items.push(["Tourniquet on"]); else if (f.tqDone) items.push(["Tourniquet released", true]);
+  if (f.swabbed) items.push(["Site cleaned"]); if (f.needle) items.push(["Needle in the vein"]);
+  for (const t of v.drawn) items.push([`${v.tubes[t].name} tube filled${v.labelled[t] ? ", labelled" : ""}`]);
+  if (f.sharps) items.push(["Needle in the sharps bin"]); if (f.gauze) items.push(["Gauze on the site"]);
+  if (f.gone) items.push(["Patient has left", true]);
+  return (
+    <div className="card p-4">
+      <h3 className="text-sm font-bold mb-2">At the chair</h3>
+      {items.length ? (
+        <ul className="flex flex-col gap-1 text-[13px]">
+          {items.map(([t, off]) => <li key={t} className="flex items-center gap-2"><span className={`w-1.5 h-1.5 rounded-full ${off ? "bg-faint" : "bg-ok"}`} />{t}</li>)}
+        </ul>
+      ) : <p className="text-xs text-muted">Nothing done yet. What you do shows up here.</p>}
+    </div>
+  );
+}
+
+// Reception: pick a sample up, compare its label with its form, look at the tube
+// in the bay, then accept it or reject it with the reason ELIMS records.
+function Inspect({ v, task, busy, send }) {
+  const [reason, setReason] = useState("");
+  const sel = v.samples.find((x) => x.id === v.selected);
+  useEffect(() => setReason(""), [v.selected]);
+  const surnameFirst = (n) => n.split(" ").reverse().join(", ").replace(/^(\S+)/, (m) => m.toUpperCase());
+  return (
+    <>
+      <p className="text-[15px]">{task}</p>
+      <div className="flex flex-wrap gap-2">
+        {v.samples.map((x) => (
+          <button key={x.id} disabled={busy || !!x.decision} aria-pressed={v.selected === x.id}
+            onClick={() => send({ type: "inspect", sample: x.id })}
+            className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm text-left disabled:opacity-60 ${v.selected === x.id ? "border-brand ring-1 ring-brand" : "border-line hover:border-faint"}`}>
+            <span className="w-3 h-5 rounded-sm flex-shrink-0" style={{ background: x.cap }} />
+            <span>
+              Sample {x.n}{x.urgent && <b className="ml-1.5 text-[10px] uppercase tracking-wider text-danger">urgent</b>}
+              <span className="block text-[11px] text-muted">
+                {x.decision ? (x.decision.verdict === "accept" ? "Accepted" : `Rejected: ${x.decision.reason}`) : x.inspected ? "Picked up, not decided" : "Not checked yet"}
+              </span>
+            </span>
+          </button>
+        ))}
+      </div>
+      {sel ? (
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div className="rounded-xl border border-line p-3">
+            <p className="text-[11px] uppercase tracking-wider text-faint mb-1.5">Label on sample {sel.n}</p>
+            {sel.label ? (
+              <div className="rounded-md px-2.5 py-2 font-mono text-[12px] leading-snug" style={{ background: "#ffffff", color: "#1f2522", border: "1px solid #cfc6ad" }}>
+                <b className="text-[13px]">{surnameFirst(sel.label.name)}</b>
+                <span className="block">DOB {sel.label.dob}</span><span className="block">{sel.label.lab}</span><span className="block">{sel.label.test}</span>
+              </div>
+            ) : <p className="text-sm font-bold text-danger">There is no label on this tube.</p>}
+            <p className="text-[11px] text-muted mt-2">
+              {sel.tubeName} tube. Its request form is on the right. In the bay, look at the tube itself: the colour of the serum, any clot, how full it is, and whether it has leaked.
+            </p>
+          </div>
+          <div className="rounded-xl border border-line p-3 flex flex-col gap-2">
+            <p className="text-[11px] uppercase tracking-wider text-faint">Your decision on sample {sel.n}</p>
+            <button className="btn-brand" disabled={busy} onClick={() => send({ type: "decide", sample: sel.id, verdict: "accept" })}>Accept it</button>
+            <label htmlFor="reject-reason" className="text-xs text-muted mt-1">or reject it, with the reason ELIMS will record:</label>
+            <select id="reject-reason" className="input text-sm" value={reason} onChange={(e) => setReason(e.target.value)}>
+              <option value="">Choose a reason…</option>
+              {v.reasons.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+            <button className="btn-ghost text-danger disabled:opacity-50" disabled={busy || !reason}
+              onClick={() => send({ type: "decide", sample: sel.id, verdict: "reject", reason })}>Reject it</button>
+          </div>
+        </div>
+      ) : <p className="text-xs text-muted">Click a sample in the bay, or one of the buttons above, to pick it up and look at it.</p>}
+    </>
+  );
+}
+
+// The request form for the sample in your hand.
+function SampleForm({ v }) {
+  const sel = v.samples.find((x) => x.id === v.selected);
+  if (!sel) return (
+    <div className="card p-4 text-sm text-muted">
+      <p className="font-bold text-content mb-1">Request forms</p>
+      {v.current?.type === "inspect" ? "Pick up a sample to see its request form here." : `${v.samples.length} samples from ${v.patient.ward}, each with its own form.`}
+    </div>
+  );
+  return <RequestForm form={{ ...sel.form, clinic: sel.form.ward }} />;
+}
+
+function AtTheCounter({ v }) {
+  return (
+    <div className="card p-4">
+      <h3 className="text-sm font-bold mb-2">At the counter</h3>
+      <ul className="flex flex-col gap-1.5 text-[13px]">
+        {v.samples.map((x) => (
+          <li key={x.id} className="flex items-center gap-2">
+            <span className="w-2.5 h-4 rounded-sm flex-shrink-0" style={{ background: x.cap }} />
+            <span className="flex-1">Sample {x.n} · {x.form.test}{x.urgent ? " · urgent" : ""}</span>
+            <span className={`text-[11px] font-semibold ${x.decision ? (x.decision.verdict === "accept" ? "text-ok" : "text-danger") : "text-faint"}`}>
+              {x.decision ? (x.decision.verdict === "accept" ? "Accepted" : "Rejected") : "Waiting"}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {v.flags.gone && <p className="text-[11px] text-faint mt-2">The nurse has gone back to the ward.</p>}
+    </div>
+  );
+}
+
+function Result({ result, mode, v, onAgain, onRestart, onCourse, onCertificate }) {
+  const passed = mode === "exam" ? result.passed : result.would_pass;
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center p-4" style={{ background: "rgba(6,14,14,.6)" }}>
+      <div role="dialog" aria-labelledby="practical-verdict" className="card w-full max-w-2xl max-h-[calc(100vh-32px)] overflow-y-auto p-6 flex flex-col gap-4">
+        <p className="text-xs text-muted">{v.samples ? `${v.samples.length} samples from ${v.patient.ward}` : `${v.patient.name} · ${v.patient.tests.join(" + ")}`} · {mmss(v.elapsed)} taken{mode === "practice" ? " · practice run" : ""}</p>
+        <div className="flex items-center gap-3 flex-wrap">
+          {passed ? <CheckCircle2 className="text-ok" size={30} /> : <XCircle className="text-danger" size={30} />}
+          <h2 id="practical-verdict" className={`text-3xl font-black ${passed ? "text-ok" : "text-danger"}`}>
+            {mode === "exam" ? (passed ? "Passed" : "Not passed") : (passed ? "That would pass" : "That would not pass")}
+          </h2>
+        </div>
+        {result.grading && <FinalMark g={result.grading} />}
+        {result.crits.length > 0 && (
+          <div className="rounded-xl p-3.5" style={{ background: "rgb(var(--danger) / 0.10)" }}>
+            <p className="text-sm font-bold text-danger flex items-center gap-1.5 mb-1.5"><ShieldAlert size={15} /> Critical errors: these fail the attempt whatever the score</p>
+            <ul className="list-disc pl-5 text-sm flex flex-col gap-1">{result.crits.map((c, i) => <li key={i}><b>{c.step}:</b> {c.reason}</li>)}</ul>
+          </div>
+        )}
+        {result.deds.length > 0 && (
+          <div className="rounded-xl p-3.5" style={{ background: "rgb(var(--warn) / 0.10)" }}>
+            <p className="text-sm font-bold text-warn mb-1.5">Points lost</p>
+            <ul className="list-disc pl-5 text-sm flex flex-col gap-1">{result.deds.map((d, i) => <li key={i}>{d.delta} · <b>{d.step}:</b> {d.note}</li>)}</ul>
+          </div>
+        )}
+        {!result.crits.length && !result.deds.length && <p className="text-sm">A clean draw: right patient, right tubes in the right order, labelled at the chair.</p>}
+        <div>
+          <p className="text-sm font-bold">What you did</p>
+          <p className="text-xs text-muted mb-2">This is the record your supervisor sees.</p>
+          <Timeline log={result.log} />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {mode === "exam" && passed && result.certificate && <button onClick={() => onCertificate(result.certificate.serial)} className="btn-brand"><Award size={16} /> View certificate</button>}
+          {mode === "practice" && <button onClick={onRestart} className="btn-brand"><RotateCcw size={16} /> Practise again</button>}
+          {mode === "practice" && <button onClick={() => onAgain("exam")} className="btn-ghost">Take the exam</button>}
+          {mode === "exam" && !passed && <button onClick={() => onAgain("practice")} className="btn-brand">Practise first</button>}
+          {mode === "exam" && !passed && <button onClick={onRestart} className="btn-ghost"><RotateCcw size={16} /> Retake the exam</button>}
+          <button onClick={onCourse} className="btn-ghost">Back to the course</button>
+        </div>
+      </div>
+    </div>
+  );
+}
