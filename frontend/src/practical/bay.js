@@ -90,7 +90,8 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
   const REG = {}, pickables = [], HIT = new THREE.MeshBasicMaterial({ visible: false });
   disposables.push(HIT);
   function reg(id, root, hitGeo, hitPos = [0, 0, 0], extra = {}) {
-    const r = REG[id] || (REG[id] = { mats: [] });
+    const r = REG[id] || (REG[id] = { mats: [], roots: [] });
+    r.roots.push(root);
     root.traverse((o) => { if (o.isMesh) { o.material = o.material.clone(); disposables.push(o.material); r.mats.push(o.material); Object.assign(o.userData, { id, ...extra }); pickables.push(o); } });
     if (hitGeo) { const h = new THREE.Mesh(hitGeo, HIT); h.position.set(...hitPos); Object.assign(h.userData, { id, ...extra }); root.add(h); pickables.push(h); disposables.push(hitGeo); }
     return root;
@@ -366,12 +367,35 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
   const ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
   let names = {}, hoverId = null, down = null;
   const shown = (o) => { for (; o; o = o.parent) if (!o.visible) return false; return true; };
+  // On a phone a fingertip is wide and the tubes are thin: a tap that misses
+  // everything picks the nearest thing on screen, if one is within reach.
+  const _sp = new THREE.Vector3(), _bb = new THREE.Box3();
+  const inScene = (o) => { for (; o; o = o.parent) { if (!o.visible) return false; if (o === scene) return true; } return false; };
+  function nearestTo(e, reach) {
+    const r = renderer.domElement.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+    let best = null, bestD = reach;
+    for (const id in REG) for (const root of REG[id].roots || []) {
+      if (!inScene(root)) continue;
+      _bb.setFromObject(root);
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, behind = false;
+      for (let k = 0; k < 8; k++) {
+        _sp.set(k & 1 ? _bb.max.x : _bb.min.x, k & 2 ? _bb.max.y : _bb.min.y, k & 4 ? _bb.max.z : _bb.min.z).project(camera);
+        if (_sp.z > 1) { behind = true; break; }
+        const sx = (_sp.x + 1) / 2 * r.width, sy = (1 - _sp.y) / 2 * r.height;
+        x0 = Math.min(x0, sx); x1 = Math.max(x1, sx); y0 = Math.min(y0, sy); y1 = Math.max(y1, sy);
+      }
+      if (behind) continue;
+      const d = Math.hypot(Math.max(x0 - px, 0, px - x1), Math.max(y0 - py, 0, py - y1));
+      if (d < bestD) { bestD = d; best = id; }
+    }
+    return best;
+  }
   function hitAt(e) {
     const r = renderer.domElement.getBoundingClientRect();
     ptr.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ptr, camera);
     for (const h of ray.intersectObjects(pickables, false)) if (h.object.userData.id && shown(h.object)) return h.object.userData.id;
-    return null;
+    return e.pointerType === "touch" ? nearestTo(e, 28) : null;
   }
   function setHover(id, e) {
     if (hoverId !== id) {
@@ -388,7 +412,8 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
   }
   const cv = renderer.domElement;
   const onMove = (e) => { if (e.pointerType !== "touch") setHover(hitAt(e), e); };
-  const onLeave = () => setHover(null);
+  // A finger lifting off the screen also "leaves" it; that must not forget the first tap.
+  const onLeave = (e) => { if (e.pointerType !== "touch") setHover(null); };
   const onDown = (e) => { down = { x: e.clientX, y: e.clientY }; };
   const onUp = (e) => {
     if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) return; down = null;

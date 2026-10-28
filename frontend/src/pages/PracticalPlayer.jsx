@@ -31,6 +31,8 @@ export default function PracticalPlayer() {
   const [selLabel, setSelLabel] = useState(null);
   const [tq, setTq] = useState(null);            // seconds the tourniquet has been on
   const stageRef = useRef(null), bayRef = useRef(null), runRef = useRef(null), tqBase = useRef(null), noteTimer = useRef(0);
+  const taskRef = useRef(null), tubesRef = useRef(null), selRef = useRef(null);
+  selRef.current = selLabel;
   const queue = useRef(Promise.resolve()), pending = useRef(0);
 
   const tell = useCallback((n) => {
@@ -48,6 +50,13 @@ export default function PracticalPlayer() {
     const was = prev?.view, speaker = v.current?.speaker || v.patient.name, anchor = v.current?.anchor || null;
     if (!was || was.current?.id !== v.current?.id) {
       if (v.current) setTimeout(() => bay?.setView(v.current.view), was ? 450 : 0);
+      // On a phone the bay and the answers can't both fit: when the equipment is
+      // needed, bring the bay back into view.
+      if (was && ["seq", "draw", "inspect"].includes(v.current?.type) && matchMedia("(max-width: 1023px)").matches)
+        stageRef.current?.parentElement?.scrollIntoView({ behavior: "smooth", block: "start" });
+      // ...and for labelling, the labels.
+      if (was && v.current?.type === "label" && matchMedia("(max-width: 1023px)").matches)
+        setTimeout(() => taskRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
       if (v.current?.say) bay?.say(v.current.say, "patient", speaker, anchor);
     }
     // What you said, then the answer a moment later, as bubbles in the bay.
@@ -72,7 +81,7 @@ export default function PracticalPlayer() {
   // as the page; runs come and go inside it.
   useEffect(() => {
     if (!kind) return undefined;
-    const bay = createBay(stageRef.current, { kind, onPick: (obj) => send({ type: "pick", id: obj }), onView: setCamera });
+    const bay = createBay(stageRef.current, { kind, onPick: pick, onView: setCamera });
     bayRef.current = bay;
     setCamera(FIRST_VIEW[kind]);
     const v = runRef.current?.view;
@@ -88,6 +97,26 @@ export default function PracticalPlayer() {
 
   // Clicks queue up and go to the server one at a time, in the order they were
   // made: a quick second click is neither lost nor applied out of turn.
+  // While labelling, a filled tube in the rack takes the label in hand, the same
+  // as its button below the bay.
+  function pick(obj) {
+    const v = runRef.current?.view;
+    if (v?.current?.type === "label" && v.patient.tubes.includes(obj) && v.drawn.includes(obj) && !v.labelled[obj]) {
+      if (!selRef.current) return tell({ kind: "info", msg: "Pick a label first (below the bay), then tap this tube." });
+      return labelTube(obj);
+    }
+    send({ type: "pick", id: obj });
+  }
+  function labelTube(t) {
+    if (!selRef.current) return tell({ kind: "info", msg: "Pick a label first, then the tube." });
+    send({ type: "label", label: selRef.current, tube: t }).then(() => setSelLabel(null));
+  }
+  function chooseLabel(id) {
+    const on = selRef.current !== id;
+    setSelLabel(on ? id : null);
+    if (on && matchMedia("(max-width: 1023px)").matches) setTimeout(() => tubesRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+  }
+
   function send(action) {
     pending.current++; setBusy(true);
     const p = queue.current.then(() => sendNow(action)).finally(() => { if (--pending.current === 0) setBusy(false); });
@@ -166,7 +195,7 @@ export default function PracticalPlayer() {
               </div>
             )}
             {note && (
-              <div role="status" className="absolute left-2.5 right-2.5 bottom-2.5 z-10 max-w-xl text-[13px] text-white px-3 py-2.5 rounded-xl"
+              <div role="status" className="fixed lg:absolute left-3 right-3 bottom-3 lg:left-2.5 lg:right-2.5 lg:bottom-2.5 z-30 lg:z-10 mx-auto lg:mx-0 max-w-xl pointer-events-none text-[13px] text-white px-3 py-2.5 rounded-xl"
                 style={{ background: "rgba(16,28,30,.93)", borderLeft: `4px solid ${note.kind === "crit" ? "#ff6b5f" : note.kind === "warn" ? "#f0a55c" : "#45bfbd"}` }}>
                 {note.kind !== "info" && <p className="text-[10px] font-bold uppercase tracking-widest text-white/70 mb-0.5">{note.kind === "crit" ? "Critical error" : "Points lost"}</p>}
                 {note.msg}
@@ -175,7 +204,7 @@ export default function PracticalPlayer() {
             {busy && <Loader2 className="absolute bottom-3 right-3 z-10 animate-spin text-white/80" size={18} />}
           </div>
 
-          <div className="card p-4 sm:p-5 flex flex-col gap-3" aria-live="polite">
+          <div ref={taskRef} className="card p-4 sm:p-5 flex flex-col gap-3 scroll-mt-3" aria-live="polite">
             {!v ? <Loader2 className="animate-spin text-muted" /> : cur ? (
               <>
                 <div className="flex justify-between text-[11px] uppercase tracking-widest text-faint">
@@ -219,11 +248,11 @@ export default function PracticalPlayer() {
                   <>
                     <p className="text-[15px]">{cur.task}</p>
                     {v.flags.gone && <p className="text-xs text-muted">The patient has already gone, so there is no one to check the labels against. Finish anyway to see your record.</p>}
-                    <p className="text-xs text-muted">Printed labels</p>
-                    <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))" }}>
+                    <p className="text-xs text-muted">Printed labels: tap one to pick it up</p>
+                    <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
                       {v.labels.map((L) => (
                         <button key={L.id} disabled={L.used || busy} aria-pressed={selLabel === L.id}
-                          onClick={() => setSelLabel((s) => (s === L.id ? null : L.id))}
+                          onClick={() => chooseLabel(L.id)}
                           className={`text-left rounded-md px-2.5 py-2 font-mono text-[11.5px] leading-snug flex flex-col disabled:opacity-35 ${selLabel === L.id ? "ring-2 ring-brand" : ""}`}
                           style={{ background: "#ffffff", color: "#1f2522", border: "1px solid #cfc6ad" }}>
                           <b className="text-[12.5px]">{L.name}</b>
@@ -232,13 +261,15 @@ export default function PracticalPlayer() {
                         </button>
                       ))}
                     </div>
-                    <p className="text-xs text-muted">Your filled tubes</p>
-                    <div className="flex flex-wrap gap-2">
+                    {(() => { const L = v.labels.find((l) => l.id === selLabel); return (
+                      <p className={L ? "text-sm font-bold" : "text-xs text-muted"}>{L ? `Now tap the tube for the ${L.test} label: here, or in the rack.` : "Your filled tubes"}</p>
+                    ); })()}
+                    <div ref={tubesRef} className="flex flex-wrap gap-2">
                       {v.patient.tubes.map((t) => {
                         const done = v.labelled[t];
                         return (
                           <button key={t} disabled={done || busy}
-                            onClick={() => { if (!selLabel) return tell({ kind: "info", msg: "Pick a label first, then the tube." }); send({ type: "label", label: selLabel, tube: t }).then(() => setSelLabel(null)); }}
+                            onClick={() => labelTube(t)}
                             className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm ${done ? "border-ok" : "border-dashed border-line bg-surface-2"}`}>
                             <span className="w-3 h-5 rounded-sm" style={{ background: v.tubes[t].cap, boxShadow: "inset 0 -9px 0 #7a1f1f" }} />
                             {v.tubes[t].name} tube {done && <span className="text-[11px] font-bold text-ok">Labelled</span>}

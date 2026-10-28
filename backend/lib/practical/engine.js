@@ -138,7 +138,7 @@ function use(c, id) {
 function pick(c, id) {
   const { st, sc, steps } = c, s = steps[st.step], name = sc.OBJECTS[id][0];
   if (s.type === "talk") return say(c, "info", "Answer the patient first.");
-  if (s.type === "label") return say(c, "info", id === "printer" ? "The labels are printed. Apply them below." : "Use the labels below the bay.");
+  if (s.type === "label") return say(c, "info", id === "printer" ? "The labels are printed. Pick one below the bay." : "Pick a label below the bay, then the tube it belongs on.");
   if (s.type === "draw") return drawPick(c, id);
   if (s.type === "inspect") {
     if (st.samples?.some((x) => x.id === id)) return inspect(c, id);
