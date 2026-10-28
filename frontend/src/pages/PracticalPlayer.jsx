@@ -14,7 +14,15 @@ import FinalMark from "../components/FinalMark";
 const VIEW_NAMES = {
   phlebotomy: [["patient", "Patient"], ["wide", "Bay"], ["bench", "Bench"], ["rack", "Tubes"]],
   reception: [["nurse", "Nurse"], ["counter", "Counter"], ["close", "Close-up"], ["phone", "Phone"]],
+  chemistry: [["bench", "Bench"], ["analyser", "Analyser"], ["qc", "QC chart"], ["phone", "Phone"]],
 };
+// What a clean run means, in each room's words.
+const CLEAN = {
+  phlebotomy: "A clean draw: right patient, right tubes in the right order, labelled at the chair.",
+  reception: "A clean check: every sample matched to its form, every fault caught with the right reason.",
+  chemistry: "A clean call: checked before it left the lab, the right action for what the checks showed, and every word of the call where it should be.",
+};
+const initialsOf = (name) => name.replace(/\(.*\)/, "").trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2);
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
 export default function PracticalPlayer() {
@@ -52,7 +60,7 @@ export default function PracticalPlayer() {
       if (v.current) setTimeout(() => bay?.setView(v.current.view), was ? 450 : 0);
       // On a phone the bay and the answers can't both fit: when the equipment is
       // needed, bring the bay back into view.
-      if (was && ["seq", "draw", "inspect"].includes(v.current?.type) && matchMedia("(max-width: 1023px)").matches)
+      if (was && ["seq", "draw", "inspect", "check"].includes(v.current?.type) && matchMedia("(max-width: 1023px)").matches)
         stageRef.current?.parentElement?.scrollIntoView({ behavior: "smooth", block: "start" });
       // ...and for labelling, the labels.
       if (was && v.current?.type === "label" && matchMedia("(max-width: 1023px)").matches)
@@ -65,6 +73,10 @@ export default function PracticalPlayer() {
       setTimeout(() => bay?.say(v.current.picked.reply, "patient", speaker, anchor), 1100);
     }
     if (v.current?.id === "draw" && v.flags.needle && !was?.flags?.needle) setTimeout(() => bay?.setView("rack"), 500);
+    // A new finding shows below the bay; on a phone that is off-screen, so say so.
+    const nf = v.findings?.length || 0;
+    if (was && nf > (was.findings?.length || 0) && matchMedia("(max-width: 1023px)").matches)
+      tell({ kind: "info", msg: `${v.findings[nf - 1].title}: checked. What it shows is below the bay.` });
     tqBase.current = v.tq_elapsed == null ? null : { at: performance.now(), s: v.tq_elapsed };
     setTq(v.tq_elapsed);
   }, []);
@@ -94,6 +106,14 @@ export default function PracticalPlayer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind]);
   useEffect(() => { begin(); }, [begin]);
+
+  // No scroll anchoring while the room is open: a finding added to the panel
+  // below must not scroll the room away from under the pointer.
+  useEffect(() => {
+    const els = [document.documentElement, document.body];
+    els.forEach((e) => { e.style.overflowAnchor = "none"; });
+    return () => els.forEach((e) => { e.style.overflowAnchor = ""; });
+  }, []);
 
   // Clicks queue up and go to the server one at a time, in the order they were
   // made: a quick second click is neither lost nor applied out of turn.
@@ -145,7 +165,7 @@ export default function PracticalPlayer() {
   }, [tq == null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const v = run?.view, cur = v?.current;
-  const initials = v ? v.patient.name.split(" ").map((w) => w[0]).join("") : "";
+  const initials = v ? initialsOf(cur?.speaker || v.patient.name) : "";
 
   return (
     <div className="min-h-screen bg-bg text-content flex flex-col">
@@ -178,7 +198,8 @@ export default function PracticalPlayer() {
 
       <main className="flex-1 grid lg:grid-cols-[minmax(0,1fr)_340px] gap-4 p-4 sm:p-6 min-h-0">
         <section className="flex flex-col gap-4 min-w-0">
-          <div className="relative rounded-2xl overflow-hidden border border-line h-[52vh] lg:h-auto lg:flex-1 lg:min-h-[420px]" style={{ background: "#dbe4e2" }}>
+          {/* A fixed height: as the panel below grows, the room must not resize and shift under the pointer. */}
+          <div className="relative rounded-2xl overflow-hidden border border-line h-[52vh] lg:h-[62vh] lg:min-h-[420px] lg:max-h-[680px] shrink-0" style={{ background: "#dbe4e2" }}>
             <div ref={stageRef} className="absolute inset-0" aria-label={kind === "reception" ? "The specimen reception counter in 3D. Click a sample to pick it up." : "The phlebotomy bay in 3D. Click equipment to use it."} />
             <div className="absolute top-2.5 right-2.5 flex gap-0.5 p-1 rounded-xl z-10" style={{ background: "rgba(16,28,30,.78)" }} role="group" aria-label="Camera">
               {(VIEW_NAMES[kind] || []).map(([k, label]) => (
@@ -244,6 +265,14 @@ export default function PracticalPlayer() {
                   </>
                 )}
                 {cur.type === "inspect" && <Inspect v={v} task={cur.task} busy={busy} send={send} />}
+                {cur.type === "check" && (
+                  <>
+                    <p className="text-[15px]">{cur.task}</p>
+                    <p className="text-xs text-muted">Click things in the bay to check them; what each one shows appears here. On a phone, tap once to name it and again to check it.</p>
+                    <Findings items={v.findings} />
+                    <button disabled={busy} onClick={() => send({ type: "continue" })} className="btn-brand self-start">I've checked: decide</button>
+                  </>
+                )}
                 {cur.type === "label" && (
                   <>
                     <p className="text-[15px]">{cur.task}</p>
@@ -286,7 +315,10 @@ export default function PracticalPlayer() {
 
         <aside className="flex flex-col gap-4 min-w-0">
           {v && !v.samples && <RequestForm form={{ ...v.patient, dob: `${v.patient.dob}  (${v.patient.age} y)` }} />}
-          {v && !v.samples && <AtTheChair v={v} />}
+          {v && kind === "phlebotomy" && <AtTheChair v={v} />}
+          {v?.findings?.length > 0 && cur?.type !== "check" && (
+            <div className="card p-4 flex flex-col gap-3"><p className="text-sm font-bold">What you checked</p><Findings items={v.findings} /></div>
+          )}
           {v?.samples && <SampleForm v={v} />}
           {v?.samples && <AtTheCounter v={v} />}
         </aside>
@@ -299,6 +331,63 @@ export default function PracticalPlayer() {
           onCourse={() => navigate(`/learn/${id}`)}
           onCertificate={(serial) => navigate(`/learn/certificate/${serial}`)} />
       )}
+    </div>
+  );
+}
+
+// What the checks showed: plain notes, a results table, or a QC chart.
+function Findings({ items }) {
+  if (!items?.length) return <p className="text-xs text-faint">Nothing checked yet.</p>;
+  return (
+    <div className="flex flex-col gap-3">
+      {items.map((f) => (
+        <div key={f.id} className="rounded-xl border border-line p-3 flex flex-col gap-1.5">
+          <p className="text-[11px] uppercase tracking-wider text-faint">{f.title}</p>
+          {f.type === "text" && f.lines.map((l, i) => <p key={i} className="text-sm">{l}</p>)}
+          {f.type === "table" && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-[13px] tabular-nums">
+                <thead><tr>{f.head.map((h, i) => <th key={i} className="text-left font-semibold text-muted text-[11px] uppercase tracking-wider pr-3 pb-1">{h}</th>)}</tr></thead>
+                <tbody>
+                  {f.rows.map((r, i) => (
+                    <tr key={i} className="border-t border-line">
+                      {r.map((c, j) => (
+                        <td key={j} className={`py-1 pr-3 ${j === 0 ? "" : "font-mono"} ${c === "CRITICAL" ? "text-danger font-bold" : c === "H" || c === "L" ? "text-warn font-bold" : ""}`}>{c}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {f.type === "qc" && (
+            <>
+              {f.levels.map((L) => <QcChart key={L.name} level={L} />)}
+              <p className="text-xs text-muted">{f.note}</p>
+            </>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// A Levey-Jennings chart: the target, ±2 SD (warning) and ±3 SD (reject).
+function QcChart({ level: L }) {
+  const w = 300, h = 96, mid = h / 2, sd = 12, x = (i) => 30 + i * ((w - 40) / Math.max(1, L.points.length - 1)), y = (p) => mid - Math.max(-3.8, Math.min(3.8, p)) * sd;
+  return (
+    <div>
+      <p className="text-xs flex justify-between gap-2"><span>{L.name}</span><span className="font-mono">last: {L.last}</span></p>
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full max-w-[340px]" role="img" aria-label={`${L.name}: points in SD units, last ${L.points[L.points.length - 1]} SD`}>
+        {[[3, "rgb(var(--danger))"], [2, "rgb(var(--warn))"], [0, "currentColor"], [-2, "rgb(var(--warn))"], [-3, "rgb(var(--danger))"]].map(([s, col]) => (
+          <g key={s}>
+            <line x1="26" x2={w - 6} y1={y(s)} y2={y(s)} stroke={col} strokeOpacity={s ? 0.7 : 0.35} strokeDasharray={Math.abs(s) === 2 ? "4 3" : undefined} />
+            <text x="0" y={y(s) + 3.5} fontSize="9" fill="currentColor" opacity=".6">{s > 0 ? `+${s}` : s === 0 ? "0" : s}</text>
+          </g>
+        ))}
+        <polyline fill="none" stroke="rgb(var(--brand))" strokeWidth="1.5" points={L.points.map((p, i) => `${x(i)},${y(p)}`).join(" ")} />
+        {L.points.map((p, i) => <circle key={i} cx={x(i)} cy={y(p)} r={Math.abs(p) > 3 ? 4.5 : 3} fill={Math.abs(p) > 3 ? "rgb(var(--danger))" : "rgb(var(--brand))"} />)}
+      </svg>
     </div>
   );
 }
@@ -317,7 +406,7 @@ function Say({ who, initials, text, me }) {
 // The doctor's request, on paper: the thing everything gets checked against.
 function RequestForm({ form: P }) {
   const hand = { fontFamily: '"Segoe Print", "Bradley Hand", "Comic Sans MS", cursive', color: "#1d3f8f" };
-  const all = ["FBC", "ESR", "FBG", "RBS", "HbA1c", "U&E", "LFT", "Lipids", "PT/INR", "APTT", "Malaria RDT", "HBsAg"];
+  const all = P.formTests || ["FBC", "ESR", "FBG", "RBS", "HbA1c", "U&E", "LFT", "Lipids", "PT/INR", "APTT", "Malaria RDT", "HBsAg"];
   return (
     <div className="rounded-md px-4 py-3 text-[12.5px] shadow-card" style={{ background: "#fffdf5", color: "#1f2522", border: "1px solid #cfc6ad" }}>
       <div className="flex justify-between items-baseline gap-2 pb-1.5 mb-2" style={{ borderBottom: "2px solid #1f2522" }}>
@@ -478,7 +567,7 @@ function Result({ result, mode, v, onAgain, onRestart, onCourse, onCertificate }
             <ul className="list-disc pl-5 text-sm flex flex-col gap-1">{result.deds.map((d, i) => <li key={i}>{d.delta} · <b>{d.step}:</b> {d.note}</li>)}</ul>
           </div>
         )}
-        {!result.crits.length && !result.deds.length && <p className="text-sm">A clean draw: right patient, right tubes in the right order, labelled at the chair.</p>}
+        {!result.crits.length && !result.deds.length && <p className="text-sm">{CLEAN[v.scenario.bay] || CLEAN.phlebotomy}</p>}
         <div>
           <p className="text-sm font-bold">What you did</p>
           <p className="text-xs text-muted mb-2">This is the record your supervisor sees.</p>

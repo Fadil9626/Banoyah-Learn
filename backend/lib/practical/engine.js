@@ -15,6 +15,7 @@
 const SCENARIOS = {
   "phleb-101": require("./scenarios/phleb101"),
   "recep-102": require("./scenarios/recep102"),
+  "chem-202": require("./scenarios/chem202"),
 };
 
 const list = () => Object.values(SCENARIOS).map((s) => ({ key: s.key, title: s.title, description: s.description }));
@@ -57,6 +58,7 @@ function start(key, { now, patientIndex } = {}) {
     drawn: [], labelled: {},
     rack: shuffle(Object.keys(sc.TUBES)),        // nobody learns the tube positions by heart
     choiceOrder: null, picked: null, labels: null, selLabel: null, done: false,
+    vars: {}, found: [],                         // what answers and steps have set; what has been checked
   };
   sc.init?.(st, sc.PATIENTS[i]);                // a scenario can deal its own starting hand
   enter(ctx(st, now));
@@ -131,8 +133,29 @@ function use(c, id) {
     case "needle": f.needle = true; record(c, "Inserted the needle"); break;
     case "sharps": f.needle = false; f.sharps = true; record(c, "Withdrew the needle straight into the sharps bin"); break;
     case "gauze": f.gauze = true; record(c, "Pressed gauze on the site"); break;
-    default: if (sc.TUBES[id]) st.drawn.push(id);
+    default:
+      if (sc.TUBES[id]) st.drawn.push(id);
+      else record(c, `Used the ${sc.OBJECTS[id][0].toLowerCase()}`);
   }
+}
+
+// Checking: each clue picked up shows what it shows, in any order. Moving on
+// with an essential check not made costs what the scenario says it costs.
+function check(c, id) {
+  const { st, sc, steps } = c, s = steps[st.step], name = sc.OBJECTS[id][0];
+  if (!s.clues.includes(id)) return say(c, "info", sc.NEUTRAL.includes(id) ? `${name}: not needed right now.` : `${name}: not needed to check this result.`);
+  st.found ||= [];
+  if (st.found.includes(id)) return say(c, "info", "Already checked. What it showed is below the bay.");
+  st.found.push(id);
+  record(c, `Checked: ${name.toLowerCase()}`);
+}
+function doneChecking(c) {
+  const { st, steps } = c, s = steps[st.step];
+  for (const id of s.need) if (!(st.found || []).includes(id)) {
+    const m = s.missing?.[id] || { delta: -10, note: `You didn't check the ${c.sc.OBJECTS[id][0].toLowerCase()}.` };
+    mistake(c, `missed-${id}`, `Moved on without checking the ${c.sc.OBJECTS[id][0].toLowerCase()}`, m.delta, m.note, m.critical);
+  }
+  next(c);
 }
 
 function pick(c, id) {
@@ -140,6 +163,7 @@ function pick(c, id) {
   if (s.type === "talk") return say(c, "info", "Answer the patient first.");
   if (s.type === "label") return say(c, "info", id === "printer" ? "The labels are printed. Pick one below the bay." : "Pick a label below the bay, then the tube it belongs on.");
   if (s.type === "draw") return drawPick(c, id);
+  if (s.type === "check") return check(c, id);
   if (s.type === "inspect") {
     if (st.samples?.some((x) => x.id === id)) return inspect(c, id);
     return say(c, "info", sc.NEUTRAL.includes(id) ? `${name}: not needed right now.` : "Pick up a sample to look at it.");
@@ -147,7 +171,15 @@ function pick(c, id) {
   if (s.info?.[id]) return say(c, "info", s.info[id]);
   const want = s.need[st.prog], idx = s.need.indexOf(id);
   if (idx >= 0 && idx < st.prog) return say(c, "info", "Already done.");
-  if (id === want) { use(c, id); st.prog++; if (st.prog >= s.need.length) next(c); return; }
+  if (id === want) {
+    use(c, id); st.prog++;
+    if (st.prog >= s.need.length) {
+      if (s.after) record(c, s.after);
+      if (s.set) Object.assign(st.vars ||= {}, s.set);
+      next(c);
+    }
+    return;
+  }
   if (s.wrong?.[id]) { const w = s.wrong[id]; return mistake(c, id, `Picked up the ${name.toLowerCase()} too early`, w.delta, w.note, w.critical); }
   if (idx >= 0) {
     const o = s.order?.[id] || { delta: -10, note: `Not yet: the ${name.toLowerCase()} comes later in this step.` };
@@ -215,6 +247,21 @@ function choose(c, choiceId) {
   if (ch.critical || ch.delta) mistake(c, "say", `Said: "${ch.text}"`, ch.delta || -30, ch.note || null, ch.critical || null);
   else record(c, `Said: "${ch.text}"`);
   if (ch.leaves) st.flags.gone = true;
+  if (ch.set) Object.assign(st.vars ||= {}, ch.set);
+}
+
+// Continue after an answer. Some answers only send you back to think again:
+// the same question, without that answer.
+function carryOn(c) {
+  const { st, steps } = c, s = steps[st.step];
+  if (s.type === "check") return doneChecking(c);
+  if (s.type !== "talk" || st.picked == null) throw bad("Answer the patient first.");
+  if (s.choices[st.picked].again) {
+    st.choiceOrder = st.choiceOrder.filter((i) => i !== st.picked);
+    st.picked = null;
+    return;
+  }
+  next(c);
 }
 
 function applyLabel(c, labelId, tube) {
@@ -247,9 +294,7 @@ function act(st, action, now) {
   const c = ctx(st, now), a = action || {};
   switch (a.type) {
     case "say": choose(c, Number(a.choice)); break;
-    case "continue":
-      if (c.steps[st.step].type !== "talk" || st.picked == null) throw bad("Answer the patient first.");
-      next(c); break;
+    case "continue": carryOn(c); break;
     case "pick":
       if (!c.sc.OBJECTS[a.id]) throw bad("There is no such thing in the bay.");
       pick(c, a.id); break;
@@ -300,7 +345,8 @@ function view(st, now) {
     scenario: { key: sc.key, title: sc.title, bay: sc.bay },
     patient: {
       name: P.name, sex: P.sex, female: P.female, dob: P.dob, age: P.age, lab: P.lab, clinic: P.clinic, doctor: P.doctor,
-      time: P.time, tests: P.tests, ticks: P.ticks, notes: P.notes, look: P.look, tubes: P.tubes, ward: P.ward,
+      time: P.time, tests: P.tests, ticks: P.ticks, notes: P.notes, look: P.look, tubes: P.tubes || [], ward: P.ward,
+      formTests: sc.FORM_TESTS || null,
     },
     tubes: Object.fromEntries(Object.entries(sc.TUBES).map(([k, t]) => [k, { name: t.name, add: t.add, cap: t.cap, short: t.short }])),
     objects: sc.OBJECTS,
@@ -323,6 +369,9 @@ function view(st, now) {
     drawn: st.drawn, labelled: st.labelled, rack: st.rack,
     samples: st.samples ? st.samples.map((x) => sc.sampleView(x, P)) : null,
     selected: st.selected || null, reasons: sc.REASONS || null,
+    // Checking: only what has been checked is shown, never what is still to find.
+    findings: sc.findings ? sc.findings(st, P) : null,
+    specimen: sc.specimen ? sc.specimen(st) : null,
     elapsed: secs(c), done: st.done,
   };
 }
@@ -336,6 +385,7 @@ function summary(st) {
 function subject(st) {
   const sc = get(st.scenario), P = sc?.PATIENTS.find((p) => p.key === st.patient);
   if (!P) return st.patient;
+  if (sc.subject) return sc.subject(st, P);
   if (st.samples) return `${st.samples.length} samples from ${P.ward} (${P.name})`;
   return `${P.name} · ${P.tests.join(" + ")}`;
 }

@@ -1,6 +1,7 @@
 // The 3D practical rooms: the phlebotomy bay (a chair with the patient in it, a
-// bench of equipment, a rack of tubes) and the specimen reception counter (a ward
-// nurse across the counter, a rack of samples to inspect). Either one draws what
+// bench of equipment, a rack of tubes), the specimen reception counter (a ward
+// nurse across the counter, a rack of samples to inspect) and the chemistry
+// bench (an analyser flagging a result, a colleague beside it). Each one draws what
 // the server says has happened (sync) and reports what the learner clicked
 // (onPick). It decides nothing — the grading lives on the server.
 import * as THREE from "three";
@@ -18,8 +19,14 @@ const VIEWS_BY_KIND = {
     close:   { p: [0.15, 1.24, 0.42], l: [0.15, 1.2, 0.12] },     // moved onto the sample being inspected
     phone:   { p: [0.95, 1.62, 1.0], l: [1.12, 1.15, -0.08] },
   },
+  chemistry: {
+    bench:    { p: [0.55, 1.62, 1.85], l: [0.6, 1.02, -0.25] },
+    analyser: { p: [0.42, 1.48, 1.0],  l: [0.38, 1.0, -0.25] },
+    qc:       { p: [1.18, 1.45, 0.55], l: [1.18, 1.4, -0.6] },
+    phone:    { p: [1.55, 1.5, 0.95],  l: [1.75, 1.0, -0.12] },
+  },
 };
-export const FIRST_VIEW = { phlebotomy: "patient", reception: "nurse" };
+export const FIRST_VIEW = { phlebotomy: "patient", reception: "nurse", chemistry: "bench" };
 const TOP = 0.9;      // bench height in the phlebotomy bay
 const DESK = 1.04;    // counter height at reception
 
@@ -281,8 +288,123 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
     return { SAMPLE3D, ensureSamples, phonePos: new THREE.Vector3(1.3, DESK + 0.3, 0.02) };
   }
 
+  // ── the chemistry bench ──
+  // An analyser flagging the result, the spun sample in front of it, today's QC
+  // chart on the wall, the ELIMS terminal and the phone. A colleague stands at
+  // the end of the bench.
+  function buildChemistry() {
+    mesh(B(9, 3, 0.05), mat("#eef2ef"), 0.5, 1.5, -0.62);
+    mesh(B(9, 1.1, 0.02), mat("#d3e2de", { roughness: 0.4 }), 0.5, 0.55, -0.59);
+    mesh(B(0.05, 3, 6), mat("#e8edea"), -1.6, 1.5, 2.3);
+    mesh(B(0.05, 3, 6), mat("#e8edea"), 2.7, 1.5, 2.3);
+    mesh(B(1.4, 0.26, 0.01), mat("#ffffff", { map: canvasTex(560, 104, (c, w, h) => {
+      c.fillStyle = "#0d6c72"; c.fillRect(0, 0, w, h); c.fillStyle = "#fff";
+      c.font = "800 44px sans-serif"; c.fillText("CLINICAL CHEMISTRY", 22, 58);
+      c.font = "600 21px sans-serif"; c.fillText("Check it, confirm it, then call it", 24, 90);
+    }) }), -0.05, 2.2, -0.59).castShadow = false;
+
+    // the bench
+    mesh(B(2.3, 0.86, 0.62), mat("#c3ccd0"), 0.85, 0.43, -0.28);
+    mesh(B(2.34, 0.04, 0.66), mat("#f4f6f7", { roughness: 0.3 }), 0.85, 0.88, -0.28);
+    for (let x = -0.2; x < 2; x += 0.46) mesh(B(0.01, 0.7, 0.01), mat("#93a0a6"), x, 0.45, 0.035);
+
+    // the analyser, its screen redrawn whenever the result changes
+    const gAn = group(0.42, TOP, -0.33);
+    mesh(B(0.72, 0.5, 0.48), mat("#e9edef", { roughness: 0.4 }), 0, 0.25, 0, gAn);
+    mesh(B(0.72, 0.08, 0.5), mat("#0d6c72"), 0, 0.54, 0, gAn);
+    mesh(B(0.3, 0.05, 0.16), mat("#cfd6da", { metalness: 0.4 }), -0.15, 0.6, 0.06, gAn);       // sample carousel
+    for (let i = 0; i < 8; i++) mesh(C(0.008, 0.008, 0.06, 8), mat(i % 3 ? "#d4a017" : "#7b2fa1"), -0.27 + i * 0.034, 0.66, 0.06, gAn);
+    const scr = document.createElement("canvas"); scr.width = 320; scr.height = 200;
+    const scrTex = new THREE.CanvasTexture(scr); disposables.push(scrTex);
+    mesh(B(0.3, 0.19, 0.004), mat("#ffffff", { map: scrTex, emissive: "#ffffff", emissiveIntensity: 0.3 }), 0.16, 0.36, 0.242, gAn).castShadow = false;
+    reg("analyser", gAn);
+    function drawScreen(sp, t = 0) {
+      const c = scr.getContext("2d"), w = scr.width, h = scr.height, blink = Math.floor(t * 2) % 2 === 0;
+      c.fillStyle = "#101a1c"; c.fillRect(0, 0, w, h);
+      c.fillStyle = "#45bfbd"; c.font = "700 16px monospace"; c.fillText(sp?.qcFixed ? "RE-RUN · QC IN CONTROL" : "U&E · BONE PROFILE", 12, 26);
+      c.fillStyle = "#e5f1ef"; c.font = "800 52px monospace"; c.fillText(`K+ ${sp ? sp.k.toFixed(1) : "--"}`, 12, 96);
+      c.font = "600 17px monospace"; c.fillText("mmol/L", 222, 96);
+      if (blink || reduced) { c.fillStyle = "#ff6b5f"; c.fillRect(12, 116, 200, 34); c.fillStyle = "#fff"; c.font = "800 20px monospace"; c.fillText("CRITICAL HIGH", 22, 140); }
+      if (sp?.qcFail) { c.fillStyle = "#f0a55c"; c.font = "700 15px monospace"; c.fillText("QC: CHECK LEVEL 2", 12, 182); }
+      scrTex.needsUpdate = true;
+    }
+
+    // the sample, spun, in a small rack in front of the analyser; a little
+    // larger than life so the serum can be seen from the bench
+    const gTube = group(0.88, TOP, -0.02);
+    mesh(B(0.12, 0.012, 0.07), mat("#e8eef0"), 0, 0.006, 0, gTube); mesh(B(0.12, 0.012, 0.07), mat("#e8eef0"), 0, 0.07, 0, gTube);
+    const R = 0.013, H = 0.12;
+    mesh(C(R, R, H, 18), mat("#eef5f7", { roughness: 0.08, transparent: true, opacity: 0.4 }), 0, H / 2, 0, gTube);
+    mesh(C(R * 0.9, R * 0.9, H * 0.42, 18), mat("#5a0c10", { roughness: 0.35 }), 0, 0.003 + H * 0.21, 0, gTube);
+    mesh(C(R * 0.9, R * 0.9, H * 0.06, 18), mat("#ece6c8"), 0, 0.003 + H * 0.45, 0, gTube);
+    const serumMat = mat("#e3b94f", { roughness: 0.3, transparent: true, opacity: 0.85 });
+    mesh(C(R * 0.9, R * 0.9, H * 0.36, 18), serumMat, 0, 0.003 + H * 0.66, 0, gTube);
+    mesh(C(R * 1.03, R * 1.03, H * 0.34, 18, true), mat("#ffffff", { side: THREE.DoubleSide }), 0, H * 0.3, R * 0.05, gTube);
+    mesh(C(R * 1.15, R * 1.15, 0.028, 18), mat("#d4a017", { roughness: 0.4 }), 0, H + 0.013, 0, gTube);
+    reg("tube", gTube, C(0.04, 0.04, 0.18), [0, 0.07, 0]);
+
+    // QC material, beside the analyser
+    const gVials = group(-0.08, TOP, -0.12);
+    mesh(B(0.14, 0.05, 0.1), mat("#2f5d62"), 0, 0.025, 0, gVials);
+    for (let i = 0; i < 4; i++) mesh(C(0.011, 0.011, 0.06, 10), mat(i < 2 ? "#f2c524" : "#b3261e"), -0.045 + i * 0.03, 0.08, 0, gVials);
+    reg("qcvials", gVials, B(0.16, 0.13, 0.12), [0, 0.06, 0]);
+
+    // today's QC chart, pinned to the wall
+    const qcCan = document.createElement("canvas"); qcCan.width = 360; qcCan.height = 260;
+    const qcTex = new THREE.CanvasTexture(qcCan); disposables.push(qcTex);
+    const gQc = group(1.18, 1.4, -0.585);
+    mesh(B(0.5, 0.36, 0.012), mat("#ffffff", { map: qcTex }), 0, 0, 0, gQc).castShadow = false;
+    reg("qc", gQc, B(0.52, 0.38, 0.05));
+    function drawQc(sp) {
+      const c = qcCan.getContext("2d"), w = qcCan.width, h = qcCan.height;
+      c.fillStyle = "#fffdf5"; c.fillRect(0, 0, w, h);
+      c.fillStyle = "#1f2522"; c.font = "800 18px sans-serif"; c.fillText("QC · Potassium", 12, 24);
+      const L1 = [0.3, -0.5, 0.8, -1.1, 0.2, 1.4, -0.6, 0.4, -0.2], L2 = [-0.4, 0.6, 1.1, -0.8, 0.2, -1.3, 0.5, 0.9, -0.1];
+      const last = sp?.qcFail ? [1.6, 3.3] : [0.7, 0.3], fixed = sp?.qcFixed ? [-0.4, 0.6] : null;
+      [[L1, "Level 1", last[0], fixed?.[0]], [L2, "Level 2", last[1], fixed?.[1]]].forEach(([pts, name, end, fx], k) => {
+        const top = 40 + k * 110, mid = top + 50, sd = 14;
+        c.fillStyle = "#4f5a57"; c.font = "600 12px sans-serif"; c.fillText(name, 12, top + 4);
+        for (const [s, col] of [[0, "#1f2522"], [2, "#d68a2a"], [-2, "#d68a2a"], [3, "#c0392b"], [-3, "#c0392b"]]) { c.strokeStyle = col; c.lineWidth = s ? 1 : 1.5; c.setLineDash(Math.abs(s) === 2 ? [4, 3] : []); c.beginPath(); c.moveTo(70, mid - s * sd); c.lineTo(w - 12, mid - s * sd); c.stroke(); }
+        c.setLineDash([]);
+        const all = [...pts, end, ...(fx != null ? [fx] : [])], dx = (w - 100) / 11;
+        c.strokeStyle = "#0d6c72"; c.lineWidth = 1.5; c.beginPath();
+        all.forEach((p, i) => { const x = 80 + i * dx, y = mid - Math.max(-3.6, Math.min(3.6, p)) * sd; i ? c.lineTo(x, y) : c.moveTo(x, y); }); c.stroke();
+        all.forEach((p, i) => { c.fillStyle = Math.abs(p) > 3 ? "#c0392b" : "#0d6c72"; c.beginPath(); c.arc(80 + i * dx, mid - Math.max(-3.6, Math.min(3.6, p)) * sd, 4, 0, 7); c.fill(); });
+      });
+      qcTex.needsUpdate = true;
+    }
+
+    // the centrifuge, the ELIMS terminal, the phone, the reagent fridge
+    const gCf = group(1.12, TOP, -0.3);
+    mesh(C(0.17, 0.18, 0.2, 24), mat("#dfe5e8"), 0, 0.1, 0, gCf); mesh(C(0.15, 0.15, 0.02, 24), mat("#8fa0a6", { metalness: 0.4 }), 0, 0.21, 0, gCf);
+    reg("centrifuge", gCf);
+    const gMon = group(1.5, TOP, -0.38);
+    mesh(B(0.1, 0.02, 0.1), mat("#3d4448"), 0, 0.01, 0, gMon); mesh(C(0.015, 0.015, 0.2, 8), mat("#3d4448"), 0, 0.11, 0, gMon);
+    mesh(B(0.46, 0.29, 0.03), mat("#1e2327"), 0, 0.34, 0, gMon);
+    mesh(B(0.42, 0.25, 0.004), mat("#ffffff", { emissive: "#ffffff", emissiveIntensity: 0.25, map: canvasTex(300, 180, (c, w, h) => {
+      c.fillStyle = "#f4f7f8"; c.fillRect(0, 0, w, h); c.fillStyle = "#0c7a69"; c.fillRect(0, 0, w, 30);
+      c.fillStyle = "#fff"; c.font = "800 16px sans-serif"; c.fillText("ELIMS · Results", 10, 21);
+      c.font = "600 12px monospace";
+      ["Validation queue: 14", "Critical results: 1 to call", "Patient history  ·  Delta check"].forEach((t, i) => {
+        c.fillStyle = i % 2 ? "#ffffff" : "#e8eef0"; c.fillRect(0, 36 + i * 30, w, 30); c.fillStyle = i === 1 ? "#b3261e" : "#2d3436"; c.fillText(t, 10, 56 + i * 30);
+      });
+    }) }), 0, 0.34, 0.017, gMon);
+    reg("terminal", gMon);
+    const gPhone = group(1.82, TOP, -0.12);
+    mesh(B(0.17, 0.05, 0.2), mat("#2b3034"), 0, 0.025, 0, gPhone); mesh(B(0.05, 0.035, 0.21), mat("#1b1f22"), -0.05, 0.065, 0, gPhone);
+    for (let r = 0; r < 3; r++) for (let k = 0; k < 3; k++) mesh(B(0.022, 0.006, 0.022), mat("#cfd6da"), 0.03 + k * 0.028, 0.053, -0.05 + r * 0.035, gPhone);
+    reg("phone", gPhone, B(0.22, 0.12, 0.24), [0, 0.05, 0]);
+    const gFr = group(2.3, 0, -0.3);
+    mesh(B(0.6, 1.7, 0.55), mat("#f1f4f5", { roughness: 0.35 }), 0, 0.85, 0, gFr); mesh(B(0.03, 0.4, 0.03), mat("#9aa6ab", { metalness: 0.5 }), -0.24, 1.15, 0.29, gFr);
+    reg("fridge", gFr);
+
+    return { serumMat, drawScreen, drawQc, phonePos: new THREE.Vector3(1.82, TOP + 0.3, -0.12) };
+  }
+
   const ph = kind === "phlebotomy" ? buildPhlebotomy() : null;
   const rc = kind === "reception" ? buildReception() : null;
+  const ch = kind === "chemistry" ? buildChemistry() : null;
+  const phonePos = rc?.phonePos || ch?.phonePos || null;
 
   // ── the patient ──
   let PT = null;
@@ -425,13 +547,17 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
   cv.addEventListener("pointerdown", onDown); cv.addEventListener("pointerup", onUp);
 
   // ── what the server says has happened ──
-  let last = null, patientName = null;
+  let last = null, patientName = null, spec = null, blinkT = 0;
   function sync(v) {
     names = v.objects || names;
-    if (v.patient.name !== patientName) { patientName = v.patient.name; buildPatient(v.patient.look, kind === "reception"); last = null; }
+    if (v.patient.name !== patientName) {
+      patientName = v.patient.name; buildPatient(v.patient.look, kind !== "phlebotomy"); last = null;
+      if (ch) { PT.root.position.set(-0.5, 0.37, 0.3); PT.root.rotation.y = 0.55; }     // the colleague, at the end of the bench
+    }
     const f = v.flags, was = last?.flags || {};
     if (ph) syncPhlebotomy(v, f, was);
     if (rc) syncReception(v);
+    if (ch) { spec = v.specimen; ch.serumMat.color.set(spec?.serum || "#e3b94f"); ch.drawScreen(spec, clock.elapsedTime); ch.drawQc(spec); }
     if (f.gone) { if (!was.gone && last) { PT.leaveT = PT.standing ? 1 : 0; armOut(false); } else if (!last) PT.root.visible = false; }
     else if (ph) armOut(v.step >= 2);
     last = { flags: { ...f }, rack: [...v.rack], selected: v.selected };
@@ -503,13 +629,15 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
   // Keep the patient's bubble over their head, and let both fade when read.
   function placeBubbles(t) {
     const P = bubbles.patient;
-    const onPhone = P.anchor === "phone" && rc;
+    const onPhone = P.anchor === "phone" && phonePos;
     let showP = t < P.until && PT && (onPhone || PT.root.visible);
     if (showP) {
-      if (onPhone) headPos.copy(rc.phonePos);
+      if (onPhone) headPos.copy(phonePos);
       else { PT.head.getWorldPosition(headPos); headPos.y += 0.2; }
       headPos.project(camera);
-      if (headPos.z > 1 || Math.abs(headPos.x) > 1.1 || headPos.y > 1.2 || headPos.y < -1) showP = false;
+      // At the bench the colleague can stand just out of a narrow (phone) view;
+      // his bubble then stays on screen at the edge instead of vanishing.
+      if (headPos.z > 1 || (!ch && (Math.abs(headPos.x) > 1.1 || headPos.y > 1.2 || headPos.y < -1))) showP = false;
       else {
         const w = host.clientWidth, h = host.clientHeight;
         const x = Math.min(w - 90, Math.max(90, (headPos.x + 1) / 2 * w)), y = Math.max(70, (1 - headPos.y) / 2 * h);
@@ -537,6 +665,7 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
     cam.p.lerp(cam.tp, kc); cam.l.lerp(cam.tl, kc); camera.position.copy(cam.p); camera.lookAt(cam.l);
     placeBubbles(t);
     if (ph) for (const k in ph.TUBE3D) { const T = ph.TUBE3D[k]; if (T.level < T.want) { T.level = Math.min(T.want, T.level + dt * 1.2); T.fill.scale.y = Math.max(0.001, T.level); T.fill.position.y = 0.01 + 0.035 * T.level; } }
+    if (ch && !reduced && Math.floor(t * 2) !== blinkT) { blinkT = Math.floor(t * 2); ch.drawScreen(spec, t); }    // the critical flag blinks
     if (rc) for (const k in rc.SAMPLE3D) {
       const T = rc.SAMPLE3D[k], km = reduced ? 1 : 1 - Math.exp(-dt * 6);
       T.g.position.lerp(T.target, km);
