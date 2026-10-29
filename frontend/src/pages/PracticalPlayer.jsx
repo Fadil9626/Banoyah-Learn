@@ -15,12 +15,19 @@ const VIEW_NAMES = {
   phlebotomy: [["patient", "Patient"], ["wide", "Bay"], ["bench", "Bench"], ["rack", "Tubes"]],
   reception: [["nurse", "Nurse"], ["counter", "Counter"], ["close", "Close-up"], ["phone", "Phone"]],
   chemistry: [["bench", "Bench"], ["analyser", "Analyser"], ["qc", "QC chart"], ["phone", "Phone"]],
+  spill: [["room", "Room"], ["work", "Work"], ["kit", "Trolley"], ["spill", "Spill"], ["phone", "Phone"]],
 };
 // What a clean run means, in each room's words.
 const CLEAN = {
   phlebotomy: "A clean draw: right patient, right tubes in the right order, labelled at the chair.",
   reception: "A clean check: every sample matched to its form, every fault caught with the right reason.",
   chemistry: "A clean call: checked before it left the lab, the right action for what the checks showed, and every word of the call where it should be.",
+  spill: "A clean clear-up: people first, the area kept clear, protected before you touched it, the right disinfectant left to work, no glass in a hand, and reported.",
+};
+const STAGE_LABEL = {
+  reception: "The specimen reception counter in 3D. Click a sample to pick it up.",
+  chemistry: "The chemistry bench in 3D. Click things to check them.",
+  spill: "The chemistry lab in 3D, with a blood spill on the floor and the spill trolley. Click things to use them.",
 };
 const initialsOf = (name) => name.replace(/\(.*\)/, "").trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2);
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -200,7 +207,7 @@ export default function PracticalPlayer() {
         <section className="flex flex-col gap-4 min-w-0">
           {/* A fixed height: as the panel below grows, the room must not resize and shift under the pointer. */}
           <div className="relative rounded-2xl overflow-hidden border border-line h-[52vh] lg:h-[62vh] lg:min-h-[420px] lg:max-h-[680px] shrink-0" style={{ background: "#dbe4e2" }}>
-            <div ref={stageRef} className="absolute inset-0" aria-label={kind === "reception" ? "The specimen reception counter in 3D. Click a sample to pick it up." : "The phlebotomy bay in 3D. Click equipment to use it."} />
+            <div ref={stageRef} className="absolute inset-0" aria-label={STAGE_LABEL[kind] || "The phlebotomy bay in 3D. Click equipment to use it."} />
             <div className="absolute top-2.5 right-2.5 flex gap-0.5 p-1 rounded-xl z-10" style={{ background: "rgba(16,28,30,.78)" }} role="group" aria-label="Camera">
               {(VIEW_NAMES[kind] || []).map(([k, label]) => (
                 <button key={k} onClick={() => bayRef.current?.setView(k)} aria-pressed={camera === k} disabled={k === "close" && !v?.selected}
@@ -314,8 +321,9 @@ export default function PracticalPlayer() {
         </section>
 
         <aside className="flex flex-col gap-4 min-w-0">
-          {v && !v.samples && <RequestForm form={{ ...v.patient, dob: `${v.patient.dob}  (${v.patient.age} y)` }} />}
+          {v && !v.samples && kind !== "spill" && <RequestForm form={{ ...v.patient, dob: `${v.patient.dob}  (${v.patient.age} y)` }} />}
           {v && kind === "phlebotomy" && <AtTheChair v={v} />}
+          {v && kind === "spill" && <AtTheSpill v={v} />}
           {v?.findings?.length > 0 && cur?.type !== "check" && (
             <div className="card p-4 flex flex-col gap-3"><p className="text-sm font-bold">What you checked</p><Findings items={v.findings} /></div>
           )}
@@ -454,6 +462,24 @@ function AtTheChair({ v }) {
   );
 }
 
+// The clear-up so far, from what has been used. The second disinfectant is the wipe-down.
+const SPILL_DONE = { sign: "Sign out by the spill", spillkit: "Spill kit open", gloves: "Gloves on", apron: "Apron on", goggles: "Eye protection on",
+  paper: "Spill covered with paper", forceps: "Glass picked up with forceps", sharps: "Glass in the sharps bin", biobag: "Waste in the clinical-waste bag", sink: "Hands washed" };
+function AtTheSpill({ v }) {
+  const items = []; let wet = 0;
+  for (const k of v.specimen?.used || []) items.push(k === "bleach" ? (wet++ ? "Area wiped again with disinfectant" : "Disinfectant poured over the paper") : SPILL_DONE[k]);
+  return (
+    <div className="card p-4">
+      <h3 className="text-sm font-bold mb-2">At the spill</h3>
+      {items.length ? (
+        <ul className="flex flex-col gap-1 text-[13px]">
+          {items.map((t) => <li key={t} className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-ok" />{t}</li>)}
+        </ul>
+      ) : <p className="text-xs text-muted">Nothing done yet. What you do shows up here.</p>}
+    </div>
+  );
+}
+
 // Reception: pick a sample up, compare its label with its form, look at the tube
 // in the bay, then accept it or reject it with the reason ELIMS records.
 function Inspect({ v, task, busy, send }) {
@@ -547,7 +573,7 @@ function Result({ result, mode, v, onAgain, onRestart, onCourse, onCertificate }
   return (
     <div className="fixed inset-0 z-50 grid place-items-center p-4" style={{ background: "rgba(6,14,14,.6)" }}>
       <div role="dialog" aria-labelledby="practical-verdict" className="card w-full max-w-2xl max-h-[calc(100vh-32px)] overflow-y-auto p-6 flex flex-col gap-4">
-        <p className="text-xs text-muted">{v.samples ? `${v.samples.length} samples from ${v.patient.ward}` : `${v.patient.name} · ${v.patient.tests.join(" + ")}`} · {mmss(v.elapsed)} taken{mode === "practice" ? " · practice run" : ""}</p>
+        <p className="text-xs text-muted">{v.scenario.bay === "spill" ? "Blood spill, chemistry lab" : v.samples ? `${v.samples.length} samples from ${v.patient.ward}` : `${v.patient.name} · ${v.patient.tests.join(" + ")}`} · {mmss(v.elapsed)} taken{mode === "practice" ? " · practice run" : ""}</p>
         <div className="flex items-center gap-3 flex-wrap">
           {passed ? <CheckCircle2 className="text-ok" size={30} /> : <XCircle className="text-danger" size={30} />}
           <h2 id="practical-verdict" className={`text-3xl font-black ${passed ? "text-ok" : "text-danger"}`}>

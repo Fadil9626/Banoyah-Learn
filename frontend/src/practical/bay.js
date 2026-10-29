@@ -1,7 +1,8 @@
 // The 3D practical rooms: the phlebotomy bay (a chair with the patient in it, a
 // bench of equipment, a rack of tubes), the specimen reception counter (a ward
-// nurse across the counter, a rack of samples to inspect) and the chemistry
-// bench (an analyser flagging a result, a colleague beside it). Each one draws what
+// nurse across the counter, a rack of samples to inspect), the chemistry
+// bench (an analyser flagging a result, a colleague beside it), and the same lab
+// with a blood spill on its floor and the spill trolley. Each one draws what
 // the server says has happened (sync) and reports what the learner clicked
 // (onPick). It decides nothing — the grading lives on the server.
 import * as THREE from "three";
@@ -25,8 +26,15 @@ const VIEWS_BY_KIND = {
     qc:       { p: [1.18, 1.45, 0.55], l: [1.18, 1.4, -0.6] },
     phone:    { p: [1.55, 1.5, 0.95],  l: [1.75, 1.0, -0.12] },
   },
+  spill: {
+    room:  { p: [0.0, 2.0, 3.2],   l: [0.0, 0.5, 0.3] },
+    work:  { p: [-0.25, 1.6, 1.85], l: [-0.25, 0.45, 0.45] },
+    kit:   { p: [-0.7, 1.45, 1.3],  l: [-0.7, 0.78, 0.5] },
+    spill: { p: [0.7, 1.25, 1.45],  l: [0.7, 0.0, 0.55] },
+    phone: { p: [1.55, 1.5, 0.95],  l: [1.75, 1.0, -0.12] },
+  },
 };
-export const FIRST_VIEW = { phlebotomy: "patient", reception: "nurse", chemistry: "bench" };
+export const FIRST_VIEW = { phlebotomy: "patient", reception: "nurse", chemistry: "bench", spill: "room" };
 const TOP = 0.9;      // bench height in the phlebotomy bay
 const DESK = 1.04;    // counter height at reception
 
@@ -292,7 +300,7 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
   // An analyser flagging the result, the spun sample in front of it, today's QC
   // chart on the wall, the ELIMS terminal and the phone. A colleague stands at
   // the end of the bench.
-  function buildChemistry() {
+  function buildChemistry(quiet = false) {
     mesh(B(9, 3, 0.05), mat("#eef2ef"), 0.5, 1.5, -0.62);
     mesh(B(9, 1.1, 0.02), mat("#d3e2de", { roughness: 0.4 }), 0.5, 0.55, -0.59);
     mesh(B(0.05, 3, 6), mat("#e8edea"), -1.6, 1.5, 2.3);
@@ -321,6 +329,12 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
     function drawScreen(sp, t = 0) {
       const c = scr.getContext("2d"), w = scr.width, h = scr.height, blink = Math.floor(t * 2) % 2 === 0;
       c.fillStyle = "#101a1c"; c.fillRect(0, 0, w, h);
+      if (quiet) {      // nothing flagged: the analyser is just running
+        c.fillStyle = "#45bfbd"; c.font = "700 16px monospace"; c.fillText("RUNNING · U&E BATCH", 12, 26);
+        c.fillStyle = "#e5f1ef"; c.font = "800 40px monospace"; c.fillText("READY", 12, 90);
+        c.font = "600 17px monospace"; c.fillText("Queue: 42 samples", 12, 130);
+        scrTex.needsUpdate = true; return;
+      }
       c.fillStyle = "#45bfbd"; c.font = "700 16px monospace"; c.fillText(sp?.qcFixed ? "RE-RUN · QC IN CONTROL" : "U&E · BONE PROFILE", 12, 26);
       c.fillStyle = "#e5f1ef"; c.font = "800 52px monospace"; c.fillText(`K+ ${sp ? sp.k.toFixed(1) : "--"}`, 12, 96);
       c.font = "600 17px monospace"; c.fillText("mmol/L", 222, 96);
@@ -398,12 +412,109 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
     mesh(B(0.6, 1.7, 0.55), mat("#f1f4f5", { roughness: 0.35 }), 0, 0.85, 0, gFr); mesh(B(0.03, 0.4, 0.03), mat("#9aa6ab", { metalness: 0.5 }), -0.24, 1.15, 0.29, gFr);
     reg("fridge", gFr);
 
+    if (quiet) { drawScreen(null); drawQc(null); }
     return { serumMat, drawScreen, drawQc, phonePos: new THREE.Vector3(1.82, TOP + 0.3, -0.12) };
+  }
+
+  // ── a blood spill on the chemistry lab floor ──
+  // The smashed tube in front of the bench, the spill trolley, the clinical waste
+  // bin, and the hand basin with the eyewash beside it.
+  function buildSpill() {
+    const gSpill = group(0.7, 0.002, 0.6);
+    const pool = group(0, 0, 0, gSpill), bloodM = mat("#5e0b10", { roughness: 0.15, metalness: 0.1 });
+    for (const [x, z, r, sx] of [[0, 0, 0.16, 1.3], [0.14, 0.06, 0.09, 1], [-0.12, -0.05, 0.08, 1.2], [0.05, -0.1, 0.07, 1], [0.28, 0.14, 0.03, 1], [-0.25, 0.12, 0.025, 1], [0.2, -0.2, 0.02, 1]])
+      mesh(C(r, r, 0.003, 20), bloodM, x, 0, z, pool).scale.x = sx;
+    const glass = group(0, 0, 0, gSpill), glassM = mat("#e8f2f5", { roughness: 0.05, transparent: true, opacity: 0.6 });
+    for (let i = 0; i < 9; i++) mesh(B(0.012 + (i % 3) * 0.008, 0.004, 0.02 + (i % 2) * 0.012), glassM, Math.cos(i * 2.3) * 0.12 * (0.4 + (i % 3) * 0.3), 0.004, Math.sin(i * 2.3) * 0.1 * (0.4 + (i % 4) * 0.25), glass).rotation.y = i * 0.9;
+    const half = group(0.1, 0.012, 0.04, glass); half.rotation.set(0, 0.6, Math.PI / 2);      // the top of the tube, gold cap still on
+    mesh(C(0.011, 0.011, 0.05, 14), glassM, 0, 0, 0, half); mesh(C(0.0125, 0.0125, 0.024, 14), mat("#d4a017", { roughness: 0.4 }), 0, 0.035, 0, half);
+    const paper = group(0, 0, 0, gSpill); paper.visible = false;
+    for (const [x, z, ry] of [[-0.1, -0.06, 0.2], [0.1, 0.04, -0.15], [0, 0.1, 0.5], [-0.08, 0.12, -0.3], [0.12, -0.1, 0.1]]) mesh(B(0.2, 0.006, 0.2), mat("#f6f6f0", { roughness: 0.95 }), x, 0.008, z, paper).rotation.y = ry;
+    const sheen = mesh(C(0.32, 0.32, 0.002, 28), mat("#cfe0e2", { roughness: 0.05, transparent: true, opacity: 0.45 }), 0, 0, 0, gSpill); sheen.scale.x = 1.3; sheen.visible = false;
+    reg("spill", gSpill, B(0.6, 0.06, 0.5), [0, 0.03, 0]);
+
+    // the warning sign, standing by the trolley until it is put out
+    const signTex = canvasTex(150, 300, (c, w) => {
+      c.fillStyle = "#f2c524"; c.fillRect(0, 0, w, 300); c.fillStyle = "#1f2522";
+      c.beginPath(); c.moveTo(w / 2, 26); c.lineTo(w - 22, 128); c.lineTo(22, 128); c.closePath(); c.fill();
+      c.fillStyle = "#f2c524"; c.font = "900 64px sans-serif"; c.fillText("!", w / 2 - 10, 118);
+      c.fillStyle = "#1f2522"; c.font = "800 25px sans-serif"; ["CAUTION", "BLOOD", "SPILL", "KEEP", "CLEAR"].forEach((t, i) => c.fillText(t, 16, 172 + i * 26));
+    });
+    const gSign = group(-1.2, 0, 1.0), SIGN_AT = [0.38, 0, 0.2];
+    for (const s of [-1, 1]) { const pnl = group(0, 0.6, 0, gSign); pnl.rotation.x = s * 0.2; mesh(B(0.3, 0.6, 0.012), mat("#ffffff", { map: signTex }), 0, -0.3, 0, pnl); }
+    gSign.rotation.y = 0.5;
+    reg("sign", gSign);
+
+    // the spill trolley
+    const T2 = 0.8, steel = mat("#aab4b8", { metalness: 0.55, roughness: 0.35 });
+    mesh(B(0.9, 0.03, 0.46), mat("#e4e9eb"), -0.7, T2 - 0.015, 0.5); mesh(B(0.9, 0.03, 0.46), mat("#e4e9eb"), -0.7, 0.25, 0.5);
+    for (const x of [-1.12, -0.28]) for (const z of [0.3, 0.7]) mesh(C(0.012, 0.012, T2, 8), steel, x, T2 / 2, z);
+    const gKit = group(-0.98, T2, 0.38);
+    mesh(B(0.24, 0.13, 0.17), mat("#f2c524"), 0, 0.065, 0, gKit);
+    mesh(B(0.2, 0.07, 0.002), mat("#ffffff", { map: canvasTex(200, 70, (c) => { c.fillStyle = "#c0392b"; c.fillRect(0, 0, 200, 70); c.fillStyle = "#fff"; c.font = "800 22px sans-serif"; c.fillText("BIOHAZARD", 34, 30); c.fillText("SPILL KIT", 44, 58); }) }), 0, 0.07, 0.086, gKit).castShadow = false;
+    const lid = group(0, 0.13, -0.085, gKit);
+    mesh(B(0.25, 0.02, 0.18), mat("#e0b320"), 0, 0.01, 0.09, lid);
+    reg("spillkit", gKit);
+    const gGlv = group(-0.72, T2, 0.38);
+    mesh(B(0.2, 0.09, 0.11), mat("#3a7bd5"), 0, 0.045, 0, gGlv); mesh(B(0.08, 0.012, 0.035), mat("#9fd0ff"), 0, 0.092, 0, gGlv);
+    reg("gloves", gGlv);
+    const gApron = group(-0.52, T2, 0.38);
+    mesh(B(0.15, 0.03, 0.12), mat("#e6eef5", { roughness: 0.3 }), 0, 0.015, 0, gApron); mesh(B(0.15, 0.004, 0.02), mat("#9fb8cc"), 0, 0.032, 0.03, gApron);
+    reg("apron", gApron, B(0.17, 0.06, 0.14), [0, 0.03, 0]);
+    const gGog = group(-0.36, T2 + 0.03, 0.4);
+    mesh(B(0.13, 0.045, 0.01), mat("#cfe7f2", { roughness: 0.05, transparent: true, opacity: 0.7 }), 0, 0, 0.03, gGog);
+    for (const s of [-1, 1]) mesh(B(0.006, 0.02, 0.07), mat("#2c3e50"), s * 0.065, 0, -0.005, gGog);
+    reg("goggles", gGog, B(0.16, 0.07, 0.1));
+    // four bottles, each with its strength on the label
+    for (const [i, [id, col, txt]] of [["bleach1", "#c0392b", "1%"], ["bleach05", "#d9822b", "0.5%"], ["bleach01", "#2f86d6", "0.1%"], ["alcohol", "#2e8b57", "70%"]].entries()) {
+      const g = group(-1.1 + i * 0.065, T2, 0.62);
+      mesh(C(0.026, 0.028, 0.16, 16), mat("#f4f6f7", { roughness: 0.3 }), 0, 0.08, 0, g);
+      mesh(C(0.0285, 0.0285, 0.07, 16, true), mat("#ffffff", { side: THREE.DoubleSide, map: canvasTex(128, 64, (c) => { c.fillStyle = col; c.fillRect(0, 0, 128, 64); c.fillStyle = "#fff"; c.font = "900 34px sans-serif"; c.fillText(txt, 64 - c.measureText(txt).width / 2, 46); }) }), 0, 0.08, 0, g);
+      mesh(C(0.012, 0.014, 0.03, 12), mat(col, { roughness: 0.4 }), 0, 0.175, 0, g);
+      if (id === "alcohol") mesh(B(0.012, 0.03, 0.03), mat(col), 0, 0.19, 0.018, g);
+      reg(id, g, C(0.032, 0.032, 0.22), [0, 0.1, 0]);
+    }
+    const gPaper = group(-0.78, T2, 0.62);
+    for (let i = 0; i < 6; i++) mesh(B(0.16, 0.008, 0.14), mat(i % 2 ? "#f6f6f0" : "#ecece4"), 0, 0.004 + i * 0.009, 0, gPaper).rotation.y = i * 0.03;
+    reg("paper", gPaper, B(0.18, 0.07, 0.16), [0, 0.03, 0]);
+    const gFor = group(-0.6, T2, 0.62);
+    mesh(B(0.09, 0.006, 0.07), mat("#cfd6da", { metalness: 0.4 }), 0, 0.004, 0, gFor); mesh(B(0.02, 0.012, 0.06), mat("#cfd6da", { metalness: 0.4 }), 0, 0.01, 0.06, gFor);
+    for (const s of [-1, 1]) mesh(B(0.006, 0.006, 0.14), mat("#d7dde0", { metalness: 0.8, roughness: 0.2 }), 0.07 + s * 0.006, 0.006, 0, gFor).rotation.y = s * 0.04;
+    reg("forceps", gFor, B(0.16, 0.05, 0.16), [0.02, 0.02, 0.02]);
+    const gSharps = group(-0.4, T2, 0.62);
+    mesh(B(0.13, 0.16, 0.12), mat("#f2c524"), 0, 0.08, 0, gSharps); mesh(B(0.14, 0.03, 0.13), mat("#c0392b"), 0, 0.175, 0, gSharps); mesh(B(0.07, 0.005, 0.025), mat("#2b1414"), 0, 0.192, 0, gSharps);
+    reg("sharps", gSharps);
+
+    // the clinical waste bin, and the basin with the eyewash beside it
+    const gBin = group(-0.05, 0, 0.42);
+    mesh(C(0.14, 0.12, 0.46, 20), mat("#f2c524"), 0, 0.23, 0, gBin); mesh(C(0.15, 0.15, 0.03, 20), mat("#d9ae14"), 0, 0.475, 0, gBin);
+    mesh(B(0.14, 0.1, 0.002), mat("#ffffff", { map: canvasTex(140, 100, (c) => { c.fillStyle = "#f2c524"; c.fillRect(0, 0, 140, 100); c.fillStyle = "#1f2522"; c.font = "800 19px sans-serif"; c.fillText("CLINICAL", 22, 40); c.fillText("WASTE", 34, 68); }) }), 0, 0.3, 0.135, gBin).castShadow = false;
+    reg("biobag", gBin);
+    const gSink = group(-1.38, 0, -0.25);
+    mesh(C(0.05, 0.07, 0.78, 12), mat("#f4f6f7"), 0, 0.39, 0, gSink); mesh(B(0.38, 0.12, 0.32), mat("#f4f6f7", { roughness: 0.2 }), 0, 0.84, 0, gSink);
+    mesh(B(0.3, 0.02, 0.24), mat("#c9d6da", { roughness: 0.1 }), 0, 0.895, 0, gSink);
+    mesh(C(0.012, 0.012, 0.16, 8), steel, -0.15, 0.98, 0, gSink); mesh(C(0.01, 0.01, 0.1, 8), steel, -0.1, 1.05, 0, gSink).rotation.z = Math.PI / 2;
+    mesh(B(0.01, 0.22, 0.32), mat("#ffffff", { map: canvasTex(160, 110, (c) => { c.fillStyle = "#2e8b57"; c.fillRect(0, 0, 160, 110); c.fillStyle = "#fff"; c.font = "800 26px sans-serif"; c.fillText("EYEWASH", 20, 48); c.font = "600 15px sans-serif"; c.fillText("Flush 15 minutes", 22, 80); }) }), -0.2, 1.35, 0, gSink).castShadow = false;
+    reg("sink", gSink);
+
+    // Draw what has been done: the sign out, the kit open, PPE worn, the spill
+    // covered and wet with disinfectant, the glass gone, the floor wiped.
+    function show(v) {
+      const used = v.specimen?.used || [], has = (k) => used.includes(k), n = used.filter((k) => k === "bleach").length;
+      if (has("sign")) { gSign.position.set(...SIGN_AT); gSign.rotation.y = 0.35; } else { gSign.position.set(-1.2, 0, 1.0); gSign.rotation.y = 0.5; }
+      lid.rotation.x = has("spillkit") ? -1.9 : 0;
+      gApron.visible = !has("apron"); gGog.visible = !has("goggles");
+      paper.visible = has("paper") && !has("biobag");
+      paper.traverse((o) => { if (o.isMesh) o.material.color.set(n ? "#e7d9b6" : "#f6f6f0"); });
+      glass.visible = !has("forceps"); pool.visible = !has("biobag"); sheen.visible = n >= 2;
+    }
+    return { show };
   }
 
   const ph = kind === "phlebotomy" ? buildPhlebotomy() : null;
   const rc = kind === "reception" ? buildReception() : null;
-  const ch = kind === "chemistry" ? buildChemistry() : null;
+  const ch = kind === "chemistry" || kind === "spill" ? buildChemistry(kind === "spill") : null;
+  const sp = kind === "spill" ? buildSpill() : null;
   const phonePos = rc?.phonePos || ch?.phonePos || null;
 
   // ── the patient ──
@@ -482,7 +593,14 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
     if (reduced) { cam.p.copy(cam.tp); cam.l.copy(cam.tl); }
     onView?.(v);
   }
-  function resize() { const w = host.clientWidth, h = host.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / Math.max(1, h); camera.updateProjectionMatrix(); }
+  // The spill is spread across the room: on a narrow (phone) screen the camera
+  // keeps the width it has on a desktop and shows more height instead.
+  const WIDE = kind === "spill" ? Math.tan((25 * Math.PI) / 180) * 1.3 : 0;
+  function resize() {
+    const w = host.clientWidth, h = host.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / Math.max(1, h);
+    camera.fov = WIDE && camera.aspect < 1.3 ? (2 * Math.atan(WIDE / camera.aspect) * 180) / Math.PI : 50;
+    camera.updateProjectionMatrix();
+  }
   const ro = new ResizeObserver(resize); ro.observe(host);
 
   // ── picking ──
@@ -552,12 +670,14 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
     names = v.objects || names;
     if (v.patient.name !== patientName) {
       patientName = v.patient.name; buildPatient(v.patient.look, kind !== "phlebotomy"); last = null;
-      if (ch) { PT.root.position.set(-0.5, 0.37, 0.3); PT.root.rotation.y = 0.55; }     // the colleague, at the end of the bench
+      if (sp) { PT.root.position.set(1.2, 0.37, 0.95); PT.root.rotation.y = -0.45; }     // the colleague who dropped it, beside the spill
+      else if (ch) { PT.root.position.set(-0.5, 0.37, 0.3); PT.root.rotation.y = 0.55; }     // the colleague, at the end of the bench
     }
     const f = v.flags, was = last?.flags || {};
     if (ph) syncPhlebotomy(v, f, was);
     if (rc) syncReception(v);
-    if (ch) { spec = v.specimen; ch.serumMat.color.set(spec?.serum || "#e3b94f"); ch.drawScreen(spec, clock.elapsedTime); ch.drawQc(spec); }
+    if (sp) sp.show(v);
+    else if (ch) { spec = v.specimen; ch.serumMat.color.set(spec?.serum || "#e3b94f"); ch.drawScreen(spec, clock.elapsedTime); ch.drawQc(spec); }
     if (f.gone) { if (!was.gone && last) { PT.leaveT = PT.standing ? 1 : 0; armOut(false); } else if (!last) PT.root.visible = false; }
     else if (ph) armOut(v.step >= 2);
     last = { flags: { ...f }, rack: [...v.rack], selected: v.selected };
@@ -665,7 +785,7 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
     cam.p.lerp(cam.tp, kc); cam.l.lerp(cam.tl, kc); camera.position.copy(cam.p); camera.lookAt(cam.l);
     placeBubbles(t);
     if (ph) for (const k in ph.TUBE3D) { const T = ph.TUBE3D[k]; if (T.level < T.want) { T.level = Math.min(T.want, T.level + dt * 1.2); T.fill.scale.y = Math.max(0.001, T.level); T.fill.position.y = 0.01 + 0.035 * T.level; } }
-    if (ch && !reduced && Math.floor(t * 2) !== blinkT) { blinkT = Math.floor(t * 2); ch.drawScreen(spec, t); }    // the critical flag blinks
+    if (ch && !sp && !reduced && Math.floor(t * 2) !== blinkT) { blinkT = Math.floor(t * 2); ch.drawScreen(spec, t); }    // the critical flag blinks
     if (rc) for (const k in rc.SAMPLE3D) {
       const T = rc.SAMPLE3D[k], km = reduced ? 1 : 1 - Math.exp(-dt * 6);
       T.g.position.lerp(T.target, km);

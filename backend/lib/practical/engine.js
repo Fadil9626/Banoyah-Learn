@@ -16,6 +16,7 @@ const SCENARIOS = {
   "phleb-101": require("./scenarios/phleb101"),
   "recep-102": require("./scenarios/recep102"),
   "chem-202": require("./scenarios/chem202"),
+  "safe-301": require("./scenarios/safe301"),
 };
 
 const list = () => Object.values(SCENARIOS).map((s) => ({ key: s.key, title: s.title, description: s.description }));
@@ -58,7 +59,7 @@ function start(key, { now, patientIndex } = {}) {
     drawn: [], labelled: {},
     rack: shuffle(Object.keys(sc.TUBES)),        // nobody learns the tube positions by heart
     choiceOrder: null, picked: null, labels: null, selLabel: null, done: false,
-    vars: {}, found: [],                         // what answers and steps have set; what has been checked
+    vars: {}, found: [], used: [], got: [],      // what answers and steps have set; what has been checked; used
   };
   sc.init?.(st, sc.PATIENTS[i]);                // a scenario can deal its own starting hand
   enter(ctx(st, now));
@@ -67,7 +68,7 @@ function start(key, { now, patientIndex } = {}) {
 
 function enter(c) {
   const { st, steps, P } = c, s = steps[st.step];
-  st.prog = 0; st.picked = null; st.choiceOrder = null;
+  st.prog = 0; st.picked = null; st.choiceOrder = null; st.got = [];
   if (s.id === "after" && !st.flags.tq) st.prog = 1;        // tourniquet already released during the draw
   sc_onEnter(c, s);
   if (s.type === "talk") st.choiceOrder = shuffle(s.choices.map((_, i) => i));
@@ -160,7 +161,7 @@ function doneChecking(c) {
 
 function pick(c, id) {
   const { st, sc, steps } = c, s = steps[st.step], name = sc.OBJECTS[id][0];
-  if (s.type === "talk") return say(c, "info", "Answer the patient first.");
+  if (s.type === "talk") return say(c, "info", s.speaker ? "Answer first: choose what you say, below the bay." : "Answer the patient first.");
   if (s.type === "label") return say(c, "info", id === "printer" ? "The labels are printed. Pick one below the bay." : "Pick a label below the bay, then the tube it belongs on.");
   if (s.type === "draw") return drawPick(c, id);
   if (s.type === "check") return check(c, id);
@@ -169,10 +170,14 @@ function pick(c, id) {
     return say(c, "info", sc.NEUTRAL.includes(id) ? `${name}: not needed right now.` : "Pick up a sample to look at it.");
   }
   if (s.info?.[id]) return say(c, "info", s.info[id]);
-  const want = s.need[st.prog], idx = s.need.indexOf(id);
-  if (idx >= 0 && idx < st.prog) return say(c, "info", "Already done.");
-  if (id === want) {
-    use(c, id); st.prog++;
+  // `alt` lets either of two things do the same job (two strengths that are
+  // both right); `any` lets a step's things be used in any order.
+  const k = s.alt?.[id] || id, idx = s.need.indexOf(k);
+  if (s.any ? (st.got ||= []).includes(k) : idx >= 0 && idx < st.prog) return say(c, "info", "Already done.");
+  if (s.any ? idx >= 0 : k === s.need[st.prog]) {
+    if (s.any) st.got.push(k);
+    if (s.did?.[id]) record(c, s.did[id]); else use(c, id);
+    (st.used ||= []).push(k); st.prog++;
     if (st.prog >= s.need.length) {
       if (s.after) record(c, s.after);
       if (s.set) Object.assign(st.vars ||= {}, s.set);
@@ -180,10 +185,10 @@ function pick(c, id) {
     }
     return;
   }
-  if (s.wrong?.[id]) { const w = s.wrong[id]; return mistake(c, id, `Picked up the ${name.toLowerCase()} too early`, w.delta, w.note, w.critical); }
+  if (s.wrong?.[id]) { const w = s.wrong[id]; return mistake(c, id, w.what || `Picked up the ${name.toLowerCase()} too early`, w.delta, w.note, w.critical); }
   if (idx >= 0) {
-    const o = s.order?.[id] || { delta: -10, note: `Not yet: the ${name.toLowerCase()} comes later in this step.` };
-    return mistake(c, `order-${id}`, `${name}: out of order`, o.delta, o.note);
+    const o = s.order?.[k] || { delta: -10, note: `Not yet: the ${name.toLowerCase()} comes later in this step.` };
+    return mistake(c, `order-${k}`, `${name}: out of order`, o.delta, o.note);
   }
   if (sc.NEUTRAL.includes(id)) return say(c, "info", `${name}: not needed right now.`);
   mistake(c, `extra-${id}`, `${name} picked up (not needed now)`, -5, `The ${name.toLowerCase()} is not needed at this step.`);
