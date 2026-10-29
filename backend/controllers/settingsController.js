@@ -3,6 +3,8 @@ const mailer = require("../lib/mailer");
 const scheduler = require("../lib/scheduler");
 const audit = require("../lib/audit");
 const ai = require("../lib/ai");
+const engine = require("../lib/practical/engine");
+const practicalSettings = require("../lib/practical/orgSettings");
 
 const REMINDER_DEFAULTS = { reminder_enabled: "true", reminder_days: "30,7,1", reminder_interval_min: "720" };
 
@@ -169,4 +171,61 @@ const updateAi = async (req, res) => {
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 
-module.exports = { get, updateMail, updateReminders, testMail, runReminders, updateBranding, updateAi };
+// ── Practicals: the lab's own clinical figures ───────────────────────────────
+// Each practical declares what may be set (a critical limit, a disinfectant
+// strength) and the range it still makes sense in. A run copies the figures
+// when it starts, so a change applies to runs started after it.
+
+const practicalCard = async (orgId, sc) => {
+  const saved = await practicalSettings.read(orgId, sc.key);
+  const courses = (await pool.query("SELECT id, title FROM courses WHERE org_id=$1 AND practical_key=$2 ORDER BY title", [orgId, sc.key])).rows;
+  return {
+    key: sc.key, title: sc.title, description: sc.description, courses,
+    fields: engine.settings(sc.key),
+    values: engine.cleanSettings(sc.key, saved?.values).values,
+    customised: !!saved,
+    signed_by: saved?.signed_by || "", signed_on: saved?.signed_on || "",
+    updated_by: saved?.updated_by || "", updated_at: saved?.updated_at || null,
+  };
+};
+
+// ── GET /api/settings/practicals ─────────────────────────────────────────────
+const getPracticals = async (req, res) => {
+  try {
+    const out = [];
+    for (const { key } of engine.list()) if (engine.settings(key).length) out.push(await practicalCard(req.user.org_id, engine.get(key)));
+    return res.json(out);
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+};
+
+// ── PUT /api/settings/practicals/:key  { values, signed_by, signed_on } ─────
+const updatePractical = async (req, res) => {
+  const sc = engine.get(req.params.key);
+  if (!sc || !engine.settings(sc.key).length) return res.status(404).json({ message: "No such practical" });
+  try {
+    const { values, errors } = engine.cleanSettings(sc.key, req.body?.values || {});
+    if (errors.length) return res.status(400).json({ message: errors.join(" "), errors });
+    const signedBy = String(req.body?.signed_by || "").replace(/\s+/g, " ").trim().slice(0, 80);
+    const signedOn = String(req.body?.signed_on || "").trim();
+    if (signedOn && !/^\d{4}-\d{2}-\d{2}$/.test(signedOn)) return res.status(400).json({ message: "Sign-off date must be a date." });
+    if (signedOn && !signedBy) return res.status(400).json({ message: "Say who signed it off, or clear the date." });
+    await practicalSettings.write(req.user.org_id, sc.key, {
+      values, signed_by: signedBy, signed_on: signedOn, updated_by: req.user.name, updated_at: new Date().toISOString(),
+    });
+    audit.record(req, "settings.practical", { target: sc.title, details: { values, signed_by: signedBy || null, signed_on: signedOn || null } });
+    return res.json(await practicalCard(req.user.org_id, sc));
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+};
+
+// ── DELETE /api/settings/practicals/:key  (back to the defaults) ─────────────
+const resetPractical = async (req, res) => {
+  const sc = engine.get(req.params.key);
+  if (!sc || !engine.settings(sc.key).length) return res.status(404).json({ message: "No such practical" });
+  try {
+    await practicalSettings.clear(req.user.org_id, sc.key);
+    audit.record(req, "settings.practical.reset", { target: sc.title });
+    return res.json(await practicalCard(req.user.org_id, sc));
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+};
+
+module.exports = { get, updateMail, updateReminders, testMail, runReminders, updateBranding, updateAi, getPracticals, updatePractical, resetPractical };

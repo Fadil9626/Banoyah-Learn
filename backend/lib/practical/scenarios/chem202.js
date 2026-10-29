@@ -76,7 +76,21 @@ const RANGES = {
   PO4: ["Phosphate", "0.8–1.5"], ALP: ["ALP (U/L)", "30–130"], Alb: ["Albumin (g/L)", "35–50"],
 };
 const LIMITS = { Na: [135, 145], K: [3.5, 5.3], Cl: [95, 108], HCO3: [22, 29], urea: [2.5, 7.8], creat: [45, 110], Ca: [2.2, 2.6], PO4: [0.8, 1.5], ALP: [30, 130], Alb: [35, 50] };
-const CRITICAL = { K: [2.5, 6.5], Ca: [1.8, 3.0], Na: [120, 160] };   // phone-through limits (lab to confirm)
+const CRITICAL = { K: [2.5, 6.5], Ca: [1.8, 3.0], Na: [120, 160] };   // phone-through limits
+
+// What a lab may set for itself, in Settings › Practicals. The ranges keep the
+// cases true: the flagged result is 7.8 (7.6 on re-run), so the critical limit
+// must sit below both; the haemolysed sample reads H 380, the others 12 or less.
+const SETTINGS = [
+  { key: "k_critical_high", label: "Potassium critical limit (high)", type: "number", unit: "mmol/L", default: 6.5, min: 6.0, max: 7.5, step: 0.1,
+    help: "At or above this, potassium is flagged CRITICAL and is phoned. The result in this practical is 7.8, so the limit can be 7.5 at most." },
+  { key: "k_ref_low", label: "Potassium reference range, lower limit", type: "number", unit: "mmol/L", default: 3.5, min: 3.0, max: 4.0, step: 0.1 },
+  { key: "k_ref_high", label: "Potassium reference range, upper limit", type: "number", unit: "mmol/L", default: 5.3, min: 4.8, max: 6.0, step: 0.1 },
+  { key: "h_index_cutoff", label: "H-index from which a sample counts as haemolysed", type: "number", unit: "", default: 100, min: 20, max: 300, step: 5,
+    help: "Printed beside the serum indices. The haemolysed sample reads 380; the others read 12 or less." },
+];
+const DEFAULTS = Object.fromEntries(SETTINGS.map((f) => [f.key, f.default]));
+const cf = (st) => ({ ...DEFAULTS, ...(st.cfg || {}) });
 
 const pickOne = (arr, rnd = Math.random) => arr[Math.floor(rnd() * arr.length)];
 
@@ -95,14 +109,16 @@ const spoken = (k) => { const [a, b] = String(k).split("."); const w = ["zero", 
 function findings(st, P) {
   const C = CASES[st.case], out = [];
   for (const id of st.found || []) {
-    if (id === "tube") out.push({ id, type: "text", title: "The sample", lines: [C.look, `Serum indices from the analyser: H ${C.indices.H} · I ${C.indices.I} · L ${C.indices.L} (H above 100 is visibly haemolysed)`] });
+    if (id === "tube") out.push({ id, type: "text", title: "The sample", lines: [C.look, `Serum indices from the analyser: H ${C.indices.H} · I ${C.indices.I} · L ${C.indices.L} (H ${cf(st).h_index_cutoff} or more counts as haemolysed here)`] });
     if (id === "analyser") {
-      const p = { ...C.panel, K: kNow(st) };
+      const p = { ...C.panel, K: kNow(st) }, g = cf(st);
+      const limits = { ...LIMITS, K: [g.k_ref_low, g.k_ref_high] }, critical = { ...CRITICAL, K: [CRITICAL.K[0], g.k_critical_high] };
+      const ranges = { ...RANGES, K: ["Potassium", `${g.k_ref_low.toFixed(1)}–${g.k_ref_high.toFixed(1)}`] };
       out.push({ id, type: "table", title: `Analyser: ${P.lab}${st.vars?.qcFixed ? " (re-run)" : ""}`, head: ["Test", "Result", "Range", ""],
-        rows: Object.keys(RANGES).map((k) => {
-          const v = p[k], [lo, hi] = LIMITS[k], cr = CRITICAL[k];
+        rows: Object.keys(ranges).map((k) => {
+          const v = p[k], [lo, hi] = limits[k], cr = critical[k];
           const flag = cr && (v <= cr[0] || v >= cr[1]) ? "CRITICAL" : v < lo ? "L" : v > hi ? "H" : "";
-          return [RANGES[k][0], String(v), RANGES[k][1], flag];
+          return [ranges[k][0], String(v), ranges[k][1], flag];
         }) });
     }
     if (id === "qc") {
@@ -244,5 +260,5 @@ module.exports = {
   bay: "chemistry",
   tourniquetLimit: 60,
   TUBES: {}, OBJECTS, NEUTRAL, PATIENTS, CASES, FORM_TESTS, ORDER_WHY: {},
-  steps, init, findings, specimen, subject,
+  SETTINGS, steps, init, findings, specimen, subject,
 };

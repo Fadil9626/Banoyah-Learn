@@ -2,6 +2,7 @@ const pool = require("../config/db");
 const engine = require("../lib/practical/engine");
 const certificates = require("../lib/certificates");
 const audit = require("../lib/audit");
+const practicalSettings = require("../lib/practical/orgSettings");
 const { publishedCourse, prerequisiteBlock, ensureEnrollment, quizPassed } = require("./learnController");
 
 // An exam nobody has touched for this long is treated as walked away from: it is
@@ -53,7 +54,9 @@ const start = async (req, res) => {
     )).rows[0];
     const now = Date.now();
     if (!row) {
-      const state = engine.start(course.practical_key, { now });
+      // The lab's own figures, as they stand now, go into the run.
+      const cfg = (await practicalSettings.read(req.user.org_id, course.practical_key))?.values;
+      const state = engine.start(course.practical_key, { now, cfg });
       row = (await pool.query(
         `INSERT INTO practical_sessions (org_id, user_id, enrollment_id, course_id, scenario_key, mode, state)
          VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,

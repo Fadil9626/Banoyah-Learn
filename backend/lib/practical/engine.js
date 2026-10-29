@@ -23,6 +23,36 @@ const SCENARIOS = {
 const list = () => Object.values(SCENARIOS).map((s) => ({ key: s.key, title: s.title, description: s.description }));
 const get = (key) => SCENARIOS[key] || null;
 
+// ── The lab's own figures ────────────────────────────────────────────────────
+// Each scenario declares the clinical figures a lab may set for itself (a
+// critical limit, a disinfectant strength), with a default and the range the
+// scenario still makes sense in. A run copies the lab's figures when it starts,
+// so a change made in Settings never alters a run already under way, and the
+// record keeps what applied.
+const settings = (key) => get(key)?.SETTINGS || [];
+
+/**
+ * Check figures against a scenario's declarations. Anything missing takes its
+ * default; anything out of range is reported, and the default stands in for it.
+ * @returns {{ values: object, errors: string[] }}
+ */
+function cleanSettings(key, input = {}) {
+  const values = {}, errors = [];
+  for (const f of settings(key)) {
+    let v = input?.[f.key];
+    if (v === undefined || v === null || v === "") { values[f.key] = f.default; continue; }
+    if (f.type === "number") {
+      v = Number(v);
+      if (!Number.isFinite(v) || v < f.min || v > f.max) { errors.push(`${f.label}: between ${f.min} and ${f.max}${f.unit ? ` ${f.unit}` : ""}.`); values[f.key] = f.default; continue; }
+    } else if (f.type === "choice") {
+      if (!f.options.some(([o]) => o === v)) { errors.push(`${f.label}: choose one of the options.`); values[f.key] = f.default; continue; }
+    } else if (f.type === "bool") v = v === true || v === "true";
+    else v = String(v).replace(/\s+/g, " ").trim().slice(0, f.maxLength || 60) || f.default;
+    values[f.key] = v;
+  }
+  return { values, errors };
+}
+
 function shuffle(arr) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -49,7 +79,7 @@ const stepName = (c) => c.steps[Math.min(c.st.step, c.steps.length - 1)].name;
  * @param {number} opts.now     server time in ms
  * @param {number} [opts.patientIndex]  pin a patient (tests); random otherwise
  */
-function start(key, { now, patientIndex } = {}) {
+function start(key, { now, patientIndex, cfg } = {}) {
   const sc = get(key);
   if (!sc) throw new Error(`Unknown practical "${key}"`);
   const i = Number.isInteger(patientIndex) ? patientIndex % sc.PATIENTS.length : Math.floor(Math.random() * sc.PATIENTS.length);
@@ -61,6 +91,7 @@ function start(key, { now, patientIndex } = {}) {
     rack: shuffle(Object.keys(sc.TUBES)),        // nobody learns the tube positions by heart
     choiceOrder: null, picked: null, labels: null, selLabel: null, done: false,
     vars: {}, found: [], used: [], got: [],      // what answers and steps have set; what has been checked; used
+    cfg: cleanSettings(key, cfg).values,         // the lab's figures, as they stood when the run began
   };
   sc.init?.(st, sc.PATIENTS[i]);                // a scenario can deal its own starting hand
   enter(ctx(st, now));
@@ -115,6 +146,8 @@ function mistake(c, key, what, delta, note, critical) {
   say(c, critical ? "crit" : "warn", critical || note);
 }
 
+const tqLimit = (st, sc) => st.cfg?.tourniquet_limit ?? sc.tourniquetLimit;
+
 // What each action does to the bay, and the line it leaves in the record.
 function use(c, id) {
   const { st, sc } = c, f = st.flags;
@@ -127,8 +160,9 @@ function use(c, id) {
         const on = secs(c) - f.tqAt;
         f.tq = false; f.tqDone = true;
         record(c, c.steps[st.step].id === "after" ? `Released the tourniquet (on ${Math.round(on)} s)` : `Released the tourniquet once blood was flowing (on ${Math.round(on)} s)`);
-        if (on > sc.tourniquetLimit) mistake(c, "tq-time", `Tourniquet left on ${Math.round(on)} s`, -10,
-          `The tourniquet was on for ${Math.round(on)} seconds. Keep it under one minute: the blood concentrates and potassium, proteins and cell counts read high.`);
+        const lim = tqLimit(st, sc);
+        if (on > lim) mistake(c, "tq-time", `Tourniquet left on ${Math.round(on)} s`, -10,
+          `The tourniquet was on for ${Math.round(on)} seconds. Keep it under ${lim % 60 ? `${lim} seconds` : lim === 60 ? "one minute" : `${lim / 60} minutes`}: the blood concentrates and potassium, proteins and cell counts read high.`);
       }
       break;
     case "swab": f.swabbed = true; record(c, "Cleaned the site with an alcohol swab"); break;
@@ -356,7 +390,7 @@ function view(st, now) {
       formTests: sc.FORM_TESTS || null,
     },
     tubes: Object.fromEntries(Object.entries(sc.TUBES).map(([k, t]) => [k, { name: t.name, add: t.add, cap: t.cap, short: t.short }])),
-    objects: sc.OBJECTS,
+    objects: sc.objects ? sc.objects(st) : sc.OBJECTS,
     steps: steps.map((x) => x.name),
     step: st.step,
     current: s && {
@@ -376,7 +410,7 @@ function view(st, now) {
     labels: s?.type === "label" ? st.labels.map(({ id, name, dob, lab, tube, test, used }) => ({ id, name, dob, lab, tube, short: sc.TUBES[tube].short, test, used })) : null,
     flags: { hands: f.hands, gloves: f.gloves, tq: f.tq, tqDone: f.tqDone, swabbed: f.swabbed, needle: f.needle, sharps: f.sharps, gauze: f.gauze, gone: f.gone },
     tq_elapsed: f.tq ? Math.max(0, secs(c) - f.tqAt) : null,
-    tq_limit: sc.tourniquetLimit,
+    tq_limit: tqLimit(st, sc),
     drawn: st.drawn, labelled: st.labelled, rack: st.rack,
     samples: st.samples ? st.samples.map((x) => sc.sampleView(x, P)) : null,
     selected: st.selected || null, reasons: sc.REASONS || null,
@@ -401,4 +435,4 @@ function subject(st) {
   return `${P.name} · ${P.tests.join(" + ")}`;
 }
 
-module.exports = { list, get, start, act, view, grade, summary, subject };
+module.exports = { list, get, start, act, view, grade, summary, subject, settings, cleanSettings };

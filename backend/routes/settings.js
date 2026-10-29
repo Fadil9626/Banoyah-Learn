@@ -12,5 +12,8 @@ router.put("/reminders", c.updateReminders);
 router.post("/reminders/run", c.runReminders);
 router.put("/branding", c.updateBranding);
 router.put("/ai", c.updateAi);
+router.get("/practicals", c.getPracticals);
+router.put("/practicals/:key", c.updatePractical);
+router.delete("/practicals/:key", c.resetPractical);
 
 module.exports = router;

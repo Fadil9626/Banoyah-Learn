@@ -108,5 +108,10 @@ module.exports = {
   description: "Phlebotomy bay: identify the patient, consent, hand hygiene, order of draw, sharps, and labelling at the chair. Two patients, picked at random.",
   bay: "phlebotomy",
   tourniquetLimit: 60,
+  // What a lab may set for itself, in Settings › Practicals.
+  SETTINGS: [
+    { key: "tourniquet_limit", label: "Longest time the tourniquet may stay on", type: "number", unit: "seconds", default: 60, min: 30, max: 120, step: 5,
+      help: "Past this, the run loses 10 points and the learner is told why (the blood concentrates). The clock in the bay turns amber 15 seconds before it." },
+  ],
   TUBES, ORDER_WHY, OBJECTS, NEUTRAL, PATIENTS, steps,
 };

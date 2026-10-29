@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { toast } from "react-hot-toast";
-import { Mail, BellRing, Loader2, Check, Send, Play, Clock, Building2, Upload, ImageOff, X, Sparkles } from "lucide-react";
+import { Mail, BellRing, Loader2, Check, Send, Play, Clock, Building2, Upload, ImageOff, X, Sparkles, FlaskConical, RotateCcw, BadgeCheck } from "lucide-react";
 import api from "../lib/api";
 import PageHeader from "../components/PageHeader";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -10,6 +10,7 @@ const TABS = [
   { key: "email", label: "Email", icon: Mail },
   { key: "reminders", label: "Reminders", icon: BellRing },
   { key: "ai", label: "AI", icon: Sparkles },
+  { key: "practicals", label: "Practicals", icon: FlaskConical },
 ];
 
 const ACCENTS = ["#4F46E5", "#7C3AED", "#2563EB", "#059669", "#D97706", "#E11D48", "#0891B2"];
@@ -23,7 +24,7 @@ export default function Settings() {
 
   return (
     <div>
-      <PageHeader title="Settings" subtitle="Email delivery and re-certification reminders." />
+      <PageHeader title="Settings" subtitle="Your organization, email, reminders, AI, and the clinical figures your practicals use." />
       <div className="flex items-center gap-1 mb-6 border-b border-line overflow-x-auto">
         {TABS.map(({ key, label, icon: Icon }) => (
           <button key={key} onClick={() => setTab(key)}
@@ -38,6 +39,7 @@ export default function Settings() {
         : tab === "org" ? <BrandingTab data={data.branding} reload={load} />
         : tab === "email" ? <EmailTab data={data.mail} reload={load} />
         : tab === "ai" ? <AiTab data={data.ai} reload={load} />
+        : tab === "practicals" ? <PracticalsTab />
         : <RemindersTab data={data.reminders} runtime={data.runtime} reload={load} />}
     </div>
   );
@@ -347,6 +349,134 @@ function BrandingTab({ data, reload }) {
       </div>
 
       <button onClick={save} disabled={saving} className="btn-brand">{saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Save branding</button>
+    </div>
+  );
+}
+
+// ── Practicals ───────────────────────────────────────────────────────────────
+// The clinical figures each 3D practical uses: critical limits, disinfectant
+// strengths, contact times. Each practical says what may be set and within what
+// range; the lab sets its own and records who signed them off.
+function PracticalsTab() {
+  const [cards, setCards] = useState(null);
+  useEffect(() => { api("settings/practicals").then(setCards).catch((e) => toast.error(e.message)); }, []);
+  const replace = (c) => setCards((all) => all.map((x) => (x.key === c.key ? c : x)));
+  if (!cards) return <div className="py-16 grid place-items-center text-muted"><Loader2 className="animate-spin" /></div>;
+  return (
+    <div className="max-w-3xl space-y-6">
+      <div className="flex items-start gap-3 text-[13px] text-muted bg-surface-2/40 border border-line rounded-xl px-4 py-3">
+        <FlaskConical size={16} className="flex-shrink-0 mt-0.5" />
+        <p>
+          Set the figures your laboratory's procedures use. A change applies to practicals <b className="text-content">started after you save</b>; runs already
+          under way keep the figures they began with, and each run's record keeps them. Lessons and quiz questions are your own text: if they quote a figure, update them in the course editor too.
+        </p>
+      </div>
+      {cards.map((c) => <PracticalCard key={c.key} card={c} onSaved={replace} />)}
+    </div>
+  );
+}
+
+function PracticalCard({ card, onSaved }) {
+  const [f, setF] = useState({ ...card.values });
+  const [sign, setSign] = useState({ signed_by: card.signed_by, signed_on: card.signed_on });
+  const [saving, setSaving] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  useEffect(() => { setF({ ...card.values }); setSign({ signed_by: card.signed_by, signed_on: card.signed_on }); }, [card]);
+  const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
+  const dirty = JSON.stringify(f) !== JSON.stringify(card.values) || sign.signed_by !== card.signed_by || sign.signed_on !== card.signed_on;
+  const fmtDate = (d) => (d ? new Date(d.length === 10 ? `${d}T12:00:00` : d).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "");
+  const changedSince = card.signed_on && card.updated_at && card.updated_at.slice(0, 10) > card.signed_on;
+  const short = card.title.split(" · ")[0];
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const c = await api(`settings/practicals/${card.key}`, { method: "PUT", body: JSON.stringify({ values: f, ...sign }) });
+      onSaved(c); toast.success(`${short}: saved. New runs use these figures.`);
+    } catch (e) { toast.error(e.message); } finally { setSaving(false); }
+  };
+  const reset = async () => {
+    setSaving(true);
+    try { onSaved(await api(`settings/practicals/${card.key}`, { method: "DELETE" })); toast.success(`${short}: back to the default figures`); setConfirmReset(false); }
+    catch (e) { toast.error(e.message); } finally { setSaving(false); }
+  };
+
+  return (
+    <section className="card p-5 space-y-4" aria-labelledby={`p-${card.key}`}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 id={`p-${card.key}`} className="font-bold text-content">{card.title}</h3>
+          <p className="text-xs text-muted mt-0.5">
+            {card.courses.length ? <>Used by {card.courses.map((c) => c.title).join(", ")}</> : "Not used by any course yet"}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${card.customised ? "border-brand text-brand" : "border-line text-muted"}`}>
+            {card.customised ? "Your lab's figures" : "Default figures"}
+          </span>
+          {card.signed_by && card.signed_on && (
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 text-ok" style={{ background: "rgb(var(--ok) / 0.12)" }}>
+              <BadgeCheck size={12} /> Signed off {fmtDate(card.signed_on)}
+            </span>
+          )}
+          {changedSince && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full text-warn" style={{ background: "rgb(var(--warn) / 0.12)" }}>Changed since sign-off</span>}
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {card.fields.map((fd) => <SettingField key={fd.key} fd={fd} value={f[fd.key]} onChange={(v) => set(fd.key, v)} />)}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-line pt-4">
+        <Field label="Signed off by" hint="Who in the lab approved these figures.">
+          <input className="input" value={sign.signed_by} maxLength={80} onChange={(e) => setSign((s) => ({ ...s, signed_by: e.target.value }))} placeholder="e.g. Dr F. Kamara, lab manager" />
+        </Field>
+        <Field label="Signed off on">
+          <input className="input" type="date" value={sign.signed_on} onChange={(e) => setSign((s) => ({ ...s, signed_on: e.target.value }))} />
+        </Field>
+      </div>
+      {card.updated_by && <p className="text-[11px] text-faint">Last changed by {card.updated_by}, {fmtDate(card.updated_at)}.</p>}
+
+      <div className="flex flex-wrap gap-2">
+        <button onClick={save} disabled={saving || !dirty} className="btn-brand">{saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Save</button>
+        {card.customised && <button onClick={() => setConfirmReset(true)} disabled={saving} className="btn-ghost"><RotateCcw size={16} /> Back to defaults</button>}
+      </div>
+
+      <ConfirmDialog open={confirmReset} busy={saving} confirmLabel="Use defaults" icon={RotateCcw}
+        title="Go back to the default figures?"
+        message={<>Your lab's figures and sign-off for {short} are removed. Practicals started after this use the defaults.</>}
+        onConfirm={reset} onCancel={() => setConfirmReset(false)} />
+    </section>
+  );
+}
+
+function SettingField({ fd, value, onChange }) {
+  const id = `set-${fd.key}`;
+  if (fd.type === "bool") return (
+    <div className="flex items-center justify-between gap-4 bg-surface-2/50 border border-line rounded-xl px-4 py-3">
+      <div><p className="text-sm font-semibold text-content" id={id}>{fd.label}</p>{fd.help && <p className="text-xs text-muted">{fd.help}</p>}</div>
+      <Toggle on={!!value} onClick={() => onChange(!value)} />
+    </div>
+  );
+  const dp = fd.type === "number" && fd.step < 1 ? 1 : 0, n = (x) => Number(x).toFixed(dp);
+  const range = fd.type === "number" ? `${n(fd.min)}–${n(fd.max)}${fd.unit ? ` ${fd.unit}` : ""}, default ${n(fd.default)}` : fd.type === "text" ? `Default: ${fd.default}` : null;
+  return (
+    <div>
+      <label className="label" htmlFor={id}>{fd.label}</label>
+      {fd.type === "choice" ? (
+        <select id={id} className="input" value={value} onChange={(e) => onChange(e.target.value)}>
+          {fd.options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+      ) : fd.type === "number" ? (
+        <div className="flex items-center gap-2">
+          <input id={id} className="input max-w-[160px] tabular-nums" type="number" inputMode="decimal" min={fd.min} max={fd.max} step={fd.step || 1}
+            value={value} onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))} />
+          {fd.unit && <span className="text-sm text-muted">{fd.unit}</span>}
+        </div>
+      ) : (
+        <input id={id} className="input" value={value} maxLength={fd.maxLength || 60} onChange={(e) => onChange(e.target.value)} />
+      )}
+      <p className="text-[11px] text-faint mt-1">{[fd.help, range].filter(Boolean).join(" · ")}</p>
     </div>
   );
 }

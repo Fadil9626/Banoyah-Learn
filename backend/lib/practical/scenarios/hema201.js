@@ -11,8 +11,8 @@
 //   true     a real thrombocytopenia: phone it as a critical, with read-back.
 //   clot     a partly clotted sample: the whole count is unreliable. Reject it.
 //
-// Lab to confirm: the critical limit (below 20), the ×15 film estimate factor,
-// the stain (Leishman), and the read-back procedure.
+// A lab sets its own critical limit, film estimate factor and stain in
+// Settings › Practicals (defaults: below 20, ×15, Leishman).
 
 const COLLEAGUE = "Mrs Sankoh (senior scientist)";
 
@@ -46,7 +46,20 @@ const PATIENTS = [
 const FORM_TESTS = ["FBC", "ESR", "Blood film", "Retics", "Sickling", "PT/INR", "APTT", "Malaria RDT", "Blood group", "HbA1c", "U&E", "LFT"];
 
 const PLT = 18;
-const CRIT_LOW = 20;      // phone-through limit, ×10⁹/L (lab to confirm)
+
+// What a lab may set for itself, in Settings › Practicals. The count in this
+// practical is 18, so the critical limit must sit above it for the real case to
+// be a critical.
+const SETTINGS = [
+  { key: "plt_critical_low", label: "Platelet critical limit (low)", type: "number", unit: "×10⁹/L", default: 20, min: 19, max: 50, step: 1,
+    help: "Below this, a platelet count is flagged CRITICAL and is phoned. The count in this practical is 18, so the limit must be above 18." },
+  { key: "estimate_factor", label: "Film estimate: ×10⁹/L for each platelet per oil field", type: "number", unit: "", default: 15, min: 10, max: 25, step: 1,
+    help: "The estimate shown when the learner counts platelets on the film: the average per oil field times this." },
+  { key: "stain_name", label: "Stain used for blood films", type: "text", default: "Leishman", maxLength: 40,
+    help: "Named on the staining rack and in the record, e.g. Leishman, Giemsa, May-Grünwald-Giemsa or Field's." },
+];
+const DEFAULTS = Object.fromEntries(SETTINGS.map((f) => [f.key, f.default]));
+const cf = (st) => ({ ...DEFAULTS, ...(st.cfg || {}) });
 
 // Today's platelet QC, in SD units, all three levels in control.
 const QC = { L1: { mean: 75, sd: 6 }, L2: { mean: 230, sd: 12 }, L3: { mean: 480, sd: 22 } };
@@ -85,14 +98,14 @@ function init(st, P, rnd = Math.random) {
 }
 
 function findings(st, P) {
-  const C = CASES[st.case], out = [];
+  const C = CASES[st.case], out = [], g = cf(st);
   for (const id of st.found || []) {
     if (id === "tube") out.push({ id, type: "text", title: "The sample", lines: [C.tube] });
     if (id === "analyser") out.push({ id, type: "table", title: `Analyser: ${P.lab}`, head: ["Test", "Result", "Range", ""],
       rows: [...ROWS.map(([k, name, range, [lo, hi]]) => {
         const v = k === "PLT" ? PLT : C.panel[k];
         if (v == null) return [name, "---", range, ""];
-        const flag = k === "PLT" && v < CRIT_LOW ? "CRITICAL" : v < lo ? "L" : v > hi ? "H" : "";
+        const flag = k === "PLT" && v < g.plt_critical_low ? "CRITICAL" : v < lo ? "L" : v > hi ? "H" : "";
         return [name, k === "HCT" ? v.toFixed(2) : String(v), range, flag];
       }), ["Analyser flags", C.flags, "", ""]] });
     if (id === "qc") out.push({ id, type: "qc", title: "QC: platelets, today's run last", levels: ["L1", "L2", "L3"].map((L) => ({
@@ -106,10 +119,13 @@ function findings(st, P) {
       out.push({ id, type: "field", title: id === "feather" ? "Feathered edge · ×100 oil" : "Body of the film · ×100 oil", seed: n, ...C[id] });
     }
     if (id === "count") out.push({ id, type: "text", title: "Platelet estimate from the film",
-      lines: [`Average single platelets per oil field (10 fields, body of the film): ${C.avg}.`, `Estimate: ${C.avg} × 15 ≈ ${Math.round(C.avg * 15)} ×10⁹/L. Analyser: ${PLT}.`] });
+      lines: [`Average single platelets per oil field (10 fields, body of the film): ${C.avg}.`, `Estimate: ${C.avg} × ${g.estimate_factor} ≈ ${Math.round(C.avg * g.estimate_factor)} ×10⁹/L. Analyser: ${PLT}.`] });
   }
   return out;
 }
+
+// The staining rack is named for the lab's own stain.
+const objects = (st) => ({ ...OBJECTS, stain: ["Staining rack", `${cf(st).stain_name} stain and buffer`] });
 
 // What the bay draws: what has been done at the bench.
 function specimen(st) { return { used: st.used || [], plt: PLT }; }
@@ -162,7 +178,7 @@ function steps(P, st = {}) {
       task: "Make a blood film: mix the sample, spread a thin film and let it dry, stain it, and put it on the microscope.",
       need: ["tube", "slides", "stain", "microscope"],
       did: { tube: "Mixed the sample by gentle inversion", slides: "Spread a thin film (spreader at 30–45°, one smooth push) and air-dried it",
-        stain: "Stained the film with Leishman and rinsed it in buffer", microscope: "Put the film on the microscope, oil on, ×100" },
+        stain: `Stained the film with ${cf(st).stain_name} and rinsed it in buffer`, microscope: "Put the film on the microscope, oil on, ×100" },
       order: {
         slides: { delta: -5, note: "Mix the sample first, by gentle inversion: the cells settle within minutes, and a film from an unmixed tube misleads." },
         stain: { delta: -5, note: "Make and dry the film first, then stain it." },
@@ -231,5 +247,5 @@ module.exports = {
   bay: "haematology",
   tourniquetLimit: 60,
   TUBES: {}, OBJECTS, NEUTRAL, PATIENTS, CASES, FORM_TESTS, ORDER_WHY: {},
-  steps, init, findings, specimen, subject,
+  SETTINGS, steps, init, findings, specimen, subject, objects,
 };
