@@ -62,9 +62,19 @@ app.use("/api", require("./routes/authoring"));
 
 // Serve the built frontend if present (single-origin deploy).
 const dist = path.join(__dirname, "../frontend/dist");
-app.use(express.static(dist));
+// Built files carry a hash in their name, so they can be cached for good; the
+// page that names them must never be, or an old copy asks for files the last
+// update deleted.
+app.use(express.static(dist, {
+  index: false,
+  setHeaders: (res, file) => res.setHeader("Cache-Control", /[\\/]assets[\\/]/.test(file) ? "public, max-age=31536000, immutable" : "no-cache"),
+}));
+// A built file that isn't there is a 404, never the page: served as a script,
+// the page makes the browser fail with a MIME-type error instead.
+app.use("/assets", (req, res) => res.status(404).type("text/plain").send("Not found"));
 app.get("*", (req, res, next) => {
   if (req.path.startsWith("/api/")) return next();
+  res.setHeader("Cache-Control", "no-cache");
   res.sendFile(path.join(dist, "index.html"), (err) => err && next());
 });
 
