@@ -16,6 +16,7 @@ const VIEW_NAMES = {
   reception: [["nurse", "Nurse"], ["counter", "Counter"], ["close", "Close-up"], ["phone", "Phone"]],
   chemistry: [["bench", "Bench"], ["analyser", "Analyser"], ["qc", "QC chart"], ["phone", "Phone"]],
   haematology: [["bench", "Bench"], ["analyser", "Analyser"], ["stain", "Stain"], ["scope", "Microscope"], ["phone", "Phone"]],
+  bloodbank: [["phone", "Phone"], ["bench", "Bench"], ["tile", "Tile"], ["fridge", "Fridge"]],
   spill: [["room", "Room"], ["work", "Work"], ["kit", "Trolley"], ["spill", "Spill"], ["phone", "Phone"]],
 };
 // What a clean run means, in each room's words.
@@ -24,12 +25,14 @@ const CLEAN = {
   reception: "A clean check: every sample matched to its form, every fault caught with the right reason.",
   chemistry: "A clean call: checked before it left the lab, the right action for what the checks showed, and every word of the call where it should be.",
   haematology: "A clean call: checked and looked at under the microscope before it left the lab, the right action for what the film showed, and every word of the call where it should be.",
+  bloodbank: "A clean issue: grouped, checked against the record, crossmatched, and handed over only when the slip, the label and the request agreed.",
   spill: "A clean clear-up: people first, the area kept clear, protected before you touched it, the right disinfectant left to work, no glass in a hand, and reported.",
 };
 const STAGE_LABEL = {
   reception: "The specimen reception counter in 3D. Click a sample to pick it up.",
   chemistry: "The chemistry bench in 3D. Click things to check them.",
   haematology: "The haematology bench in 3D. Click things to check or use them.",
+  bloodbank: "The blood bank in 3D. Click things to check or use them.",
   spill: "The chemistry lab in 3D, with a blood spill on the floor and the spill trolley. Click things to use them.",
 };
 const initialsOf = (name) => name.replace(/\(.*\)/, "").trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2);
@@ -379,6 +382,7 @@ function Findings({ items }) {
             </div>
           )}
           {f.type === "field" && <FilmField f={f} />}
+          {f.type === "tile" && <GroupTile f={f} />}
           {f.type === "qc" && (
             <>
               {f.levels.map((L) => <QcChart key={L.name} level={L} />)}
@@ -387,6 +391,38 @@ function Findings({ items }) {
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+// A grouping tile: a well per reagent. Where the cells react they clump into
+// dark red grains on a clear ground; where they don't, the well stays an even
+// pink. Forward grouping on the left, reverse on the right.
+function GroupTile({ f }) {
+  const W = 92;
+  const well = (w, i) => {
+    let a = (w.seed + 1) * 2654435761 >>> 0;
+    const rnd = () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    const cx = W / 2, cy = W / 2, r = 34;
+    const grains = w.agg ? Array.from({ length: 22 }, () => { const ang = rnd() * 6.3, d = rnd() * (r - 8); return [cx + Math.cos(ang) * d, cy + Math.sin(ang) * d, 2.5 + rnd() * 5]; }) : [];
+    return (
+      <figure key={i} className="m-0 flex flex-col items-center gap-1">
+        <svg viewBox={`0 0 ${W} ${W}`} className="w-[72px] h-[72px]" role="img" aria-label={`${w.name}: ${w.agg ? "clumped" : "no clumps"}`}>
+          <circle cx={cx} cy={cy} r={r + 4} fill="#fbfbf8" stroke="#cfd6da" />
+          <circle cx={cx} cy={cy} r={r} fill={w.agg ? "#f6e3e1" : "#e3949b"} />
+          {grains.map(([x, y, s], k) => <circle key={k} cx={x} cy={y} r={s} fill="#8d1420" />)}
+        </svg>
+        <figcaption className="text-[11px] text-muted">{w.name}</figcaption>
+      </figure>
+    );
+  };
+  return (
+    <div>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex gap-2 rounded-xl border border-line px-2 py-2"><span className="sr-only">Forward grouping</span>{f.wells.slice(0, 3).map(well)}</div>
+        <div className="flex gap-2 rounded-xl border border-line px-2 py-2"><span className="sr-only">Reverse grouping</span>{f.wells.slice(3).map((w, i) => well(w, i + 3))}</div>
+      </div>
+      <p className="text-xs text-muted mt-2">{f.note}</p>
     </div>
   );
 }

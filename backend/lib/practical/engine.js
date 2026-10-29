@@ -19,6 +19,7 @@ const SCENARIOS = {
   "safe-301": require("./scenarios/safe301"),
   "hema-201": require("./scenarios/hema201"),
   "mal-201": require("./scenarios/mal201"),
+  "bb-201": require("./scenarios/bb201"),
 };
 
 const list = () => Object.values(SCENARIOS).map((s) => ({ key: s.key, title: s.title, description: s.description }));

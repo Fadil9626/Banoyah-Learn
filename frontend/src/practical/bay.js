@@ -3,7 +3,8 @@
 // nurse across the counter, a rack of samples to inspect), the chemistry
 // bench (an analyser flagging a result, a colleague beside it), and the same lab
 // with a blood spill on its floor and the spill trolley, and the haematology
-// bench (an analyser, a staining rack, a microscope). Each one draws what
+// bench (an analyser, a staining rack, a microscope), and the blood bank (a
+// grouping tile, a blood fridge, the issue hatch). Each one draws what
 // the server says has happened (sync) and reports what the learner clicked
 // (onPick). It decides nothing — the grading lives on the server.
 import * as THREE from "three";
@@ -35,6 +36,12 @@ const VIEWS_BY_KIND = {
     qc:       { p: [1.0, 1.45, 0.55],  l: [1.0, 1.4, -0.6] },
     phone:    { p: [2.45, 1.5, 0.95],  l: [2.6, 1.0, -0.12] },
   },
+  bloodbank: {
+    bench:  { p: [0.8, 1.7, 2.0],   l: [0.8, 0.95, -0.25] },
+    tile:   { p: [0.72, 1.32, 0.55], l: [0.72, 0.9, -0.1] },
+    fridge: { p: [1.75, 1.5, 1.45],  l: [2.3, 1.0, -0.2] },
+    phone:  { p: [-0.1, 1.45, 0.75], l: [-0.16, 0.95, -0.1] },
+  },
   spill: {
     room:  { p: [0.0, 2.0, 3.2],   l: [0.0, 0.5, 0.3] },
     work:  { p: [-0.25, 1.6, 1.85], l: [-0.25, 0.45, 0.45] },
@@ -43,7 +50,7 @@ const VIEWS_BY_KIND = {
     phone: { p: [1.55, 1.5, 0.95],  l: [1.75, 1.0, -0.12] },
   },
 };
-export const FIRST_VIEW = { phlebotomy: "patient", reception: "nurse", chemistry: "bench", spill: "room", haematology: "bench" };
+export const FIRST_VIEW = { phlebotomy: "patient", reception: "nurse", chemistry: "bench", spill: "room", haematology: "bench", bloodbank: "phone" };
 const TOP = 0.9;      // bench height in the phlebotomy bay
 const DESK = 1.04;    // counter height at reception
 
@@ -665,12 +672,104 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
     return { drawScreen, show, phonePos: new THREE.Vector3(2.62, TOP + 0.3, -0.08) };
   }
 
+  // ── the blood bank ──
+  // The sample and the grouping tile on the bench, gel cards and their
+  // centrifuge, the glass-fronted blood fridge, ELIMS, the phone, and the issue
+  // register by the hatch where the porter collects.
+  function buildBloodBank() {
+    mesh(B(9, 3, 0.05), mat("#eef2ef"), 0.5, 1.5, -0.62);
+    mesh(B(9, 1.1, 0.02), mat("#e6d9da", { roughness: 0.4 }), 0.5, 0.55, -0.59);
+    mesh(B(0.05, 3, 6), mat("#e8edea"), -1.6, 1.5, 2.3);
+    mesh(B(0.05, 3, 6), mat("#e8edea"), 2.9, 1.5, 2.3);
+    mesh(B(1.4, 0.26, 0.01), mat("#ffffff", { map: canvasTex(560, 104, (c, w, h) => {
+      c.fillStyle = "#9b1c2e"; c.fillRect(0, 0, w, h); c.fillStyle = "#fff";
+      c.font = "800 44px sans-serif"; c.fillText("BLOOD BANK", 22, 58);
+      c.font = "600 21px sans-serif"; c.fillText("Right blood, right patient, every time", 24, 90);
+    }) }), 0.1, 2.2, -0.59).castShadow = false;
+
+    // the bench
+    mesh(B(2.3, 0.86, 0.62), mat("#c3ccd0"), 0.85, 0.43, -0.28);
+    mesh(B(2.34, 0.04, 0.66), mat("#f4f6f7", { roughness: 0.3 }), 0.85, 0.88, -0.28);
+    for (let x = -0.2; x < 2; x += 0.46) mesh(B(0.01, 0.7, 0.01), mat("#93a0a6"), x, 0.45, 0.035);
+
+    // the phone and the issue register, by the hatch end of the bench
+    const gPhone = group(-0.16, TOP, -0.08);
+    mesh(B(0.17, 0.05, 0.2), mat("#2b3034"), 0, 0.025, 0, gPhone); mesh(B(0.05, 0.035, 0.21), mat("#1b1f22"), -0.05, 0.065, 0, gPhone);
+    for (let r = 0; r < 3; r++) for (let k = 0; k < 3; k++) mesh(B(0.022, 0.006, 0.022), mat("#cfd6da"), 0.03 + k * 0.028, 0.053, -0.05 + r * 0.035, gPhone);
+    reg("phone", gPhone, B(0.22, 0.12, 0.24), [0, 0.05, 0]);
+    const gReg = group(0.1, TOP, -0.34);
+    mesh(B(0.26, 0.03, 0.2), mat("#1f3b63"), 0, 0.015, 0, gReg); mesh(B(0.24, 0.004, 0.18), mat("#fbf7ec"), 0, 0.032, 0, gReg);
+    reg("register", gReg, B(0.28, 0.06, 0.22), [0, 0.02, 0]);
+
+    // the sample
+    const gTube = group(0.36, TOP, -0.05);
+    mesh(B(0.12, 0.012, 0.07), mat("#e8eef0"), 0, 0.006, 0, gTube); mesh(B(0.12, 0.012, 0.07), mat("#e8eef0"), 0, 0.07, 0, gTube);
+    const R = 0.013, H = 0.12;
+    mesh(C(R, R, H, 18), mat("#eef5f7", { roughness: 0.08, transparent: true, opacity: 0.4 }), 0, H / 2, 0, gTube);
+    mesh(C(R * 0.9, R * 0.9, H * 0.7, 18), mat("#6a0d13", { roughness: 0.3 }), 0, 0.003 + H * 0.35, 0, gTube);
+    mesh(C(R * 1.03, R * 1.03, H * 0.34, 18, true), mat("#ffffff", { side: THREE.DoubleSide }), 0, H * 0.45, R * 0.05, gTube);
+    mesh(C(R * 1.15, R * 1.15, 0.028, 18), mat("#e87ca0", { roughness: 0.4 }), 0, H + 0.013, 0, gTube);
+    reg("tube", gTube, C(0.04, 0.04, 0.18), [0, 0.07, 0]);
+
+    // the grouping tile: five wells, forward then reverse
+    const gTile = group(0.72, TOP, -0.08);
+    mesh(B(0.34, 0.014, 0.14), mat("#fbfbf8", { roughness: 0.2 }), 0, 0.007, 0, gTile);
+    for (let i = 0; i < 5; i++) mesh(C(0.024, 0.024, 0.004, 20), mat(i < 3 ? "#d98b92" : "#e9b5ad"), -0.13 + i * 0.065, 0.016, 0, gTile);
+    reg("tile", gTile, B(0.36, 0.06, 0.16), [0, 0.02, 0]);
+
+    // gel cards in their rack, and the centrifuge they spin in
+    const gGel = group(1.1, TOP, -0.2);
+    mesh(B(0.2, 0.03, 0.08), mat("#59656b"), 0, 0.015, 0, gGel);
+    for (let i = 0; i < 5; i++) mesh(B(0.006, 0.07, 0.05), mat("#f4f6f7", { roughness: 0.3 }), -0.08 + i * 0.04, 0.065, 0, gGel);
+    reg("gelcard", gGel, B(0.22, 0.12, 0.1), [0, 0.05, 0]);
+    const gCf = group(1.45, TOP, -0.3);
+    mesh(C(0.15, 0.16, 0.18, 24), mat("#dfe5e8"), 0, 0.09, 0, gCf); mesh(C(0.13, 0.13, 0.02, 24), mat("#8fa0a6", { metalness: 0.4 }), 0, 0.19, 0, gCf);
+    reg("centrifuge", gCf);
+
+    // ELIMS
+    const gMon = group(1.85, TOP, -0.38);
+    mesh(B(0.1, 0.02, 0.1), mat("#3d4448"), 0, 0.01, 0, gMon); mesh(C(0.015, 0.015, 0.2, 8), mat("#3d4448"), 0, 0.11, 0, gMon);
+    mesh(B(0.46, 0.29, 0.03), mat("#1e2327"), 0, 0.34, 0, gMon);
+    mesh(B(0.42, 0.25, 0.004), mat("#ffffff", { emissive: "#ffffff", emissiveIntensity: 0.25, map: canvasTex(300, 180, (c, w) => {
+      c.fillStyle = "#f4f7f8"; c.fillRect(0, 0, w, 180); c.fillStyle = "#0c7a69"; c.fillRect(0, 0, w, 30);
+      c.fillStyle = "#fff"; c.font = "800 16px sans-serif"; c.fillText("ELIMS · Blood bank", 10, 21);
+      c.font = "600 12px monospace";
+      ["Crossmatch requests: 1 urgent", "Group history · antibody screen", "Issue register · stock"].forEach((t, i) => {
+        c.fillStyle = i % 2 ? "#ffffff" : "#e8eef0"; c.fillRect(0, 36 + i * 30, w, 30); c.fillStyle = i === 0 ? "#b3261e" : "#2d3436"; c.fillText(t, 10, 56 + i * 30);
+      });
+    }) }), 0, 0.34, 0.017, gMon);
+    reg("terminal", gMon);
+
+    // the blood fridge: glass door, shelves of units, labelled by group
+    const gFr = group(2.45, 0, -0.25);
+    mesh(B(0.66, 1.8, 0.56), mat("#3c4448", { roughness: 0.4 }), 0, 0.9, 0, gFr);
+    mesh(B(0.58, 1.6, 0.01), mat("#cfe6f2", { roughness: 0.05, transparent: true, opacity: 0.35 }), 0, 0.95, 0.285, gFr);
+    const bagCol = ["#f2c524", "#e98aa8", "#5b8fd6", "#f4f6f7"];
+    for (let s = 0; s < 4; s++) {
+      mesh(B(0.56, 0.01, 0.5), mat("#aab4b8", { metalness: 0.5 }), 0, 0.35 + s * 0.38, 0, gFr);
+      for (let k = 0; k < 5; k++) {
+        const bag = group(-0.22 + k * 0.11, 0.36 + s * 0.38, 0.05, gFr);
+        mesh(B(0.08, 0.13, 0.03), mat("#8d1420", { roughness: 0.3 }), 0, 0.065, 0, bag);
+        mesh(B(0.05, 0.03, 0.002), mat(bagCol[(s + k) % 4]), 0, 0.09, 0.016, bag);
+      }
+    }
+    mesh(B(0.2, 0.06, 0.004), mat("#ffffff", { map: canvasTex(160, 48, (c) => { c.fillStyle = "#101a1c"; c.fillRect(0, 0, 160, 48); c.fillStyle = "#45bfbd"; c.font = "800 30px monospace"; c.fillText("4.1 °C", 18, 35); }) }), 0, 1.72, 0.285, gFr).castShadow = false;
+    reg("fridge", gFr, B(0.7, 1.8, 0.6), [0, 0.9, 0]);
+
+    // Two units come out for the crossmatch, and sit on the bench.
+    const units = group(0.95, TOP, 0.0); units.visible = false;
+    for (const x of [-0.05, 0.05]) { mesh(B(0.08, 0.02, 0.13), mat("#8d1420", { roughness: 0.3 }), x, 0.01, 0, units); mesh(B(0.05, 0.003, 0.04), mat("#ffffff"), x, 0.022, 0.03, units); }
+    function show(sp) { units.visible = (sp?.used || []).includes("fridge"); }
+    return { show, phonePos: new THREE.Vector3(-0.16, TOP + 0.3, -0.08) };
+  }
+
   const ph = kind === "phlebotomy" ? buildPhlebotomy() : null;
   const rc = kind === "reception" ? buildReception() : null;
   const ch = kind === "chemistry" || kind === "spill" ? buildChemistry(kind === "spill") : null;
   const sp = kind === "spill" ? buildSpill() : null;
   const hm = kind === "haematology" ? buildHaematology() : null;
-  const phonePos = rc?.phonePos || ch?.phonePos || hm?.phonePos || null;
+  const bb = kind === "bloodbank" ? buildBloodBank() : null;
+  const phonePos = rc?.phonePos || ch?.phonePos || hm?.phonePos || bb?.phonePos || null;
 
   // ── the patient ──
   let PT = null;
@@ -750,7 +849,7 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
   }
   // The spill is spread across the room: on a narrow (phone) screen the camera
   // keeps the width it has on a desktop and shows more height instead.
-  const WIDE = kind === "spill" || kind === "haematology" ? Math.tan((25 * Math.PI) / 180) * 1.3 : 0;
+  const WIDE = kind === "spill" || kind === "haematology" || kind === "bloodbank" ? Math.tan((25 * Math.PI) / 180) * 1.3 : 0;
   function resize() {
     const w = host.clientWidth, h = host.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / Math.max(1, h);
     camera.fov = WIDE && camera.aspect < 1.3 ? (2 * Math.atan(WIDE / camera.aspect) * 180) / Math.PI : 50;
@@ -826,13 +925,15 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
     if (v.patient.name !== patientName) {
       patientName = v.patient.name; buildPatient(v.patient.look, kind !== "phlebotomy"); last = null;
       if (sp) { PT.root.position.set(1.2, 0.37, 0.95); PT.root.rotation.y = -0.45; }     // the colleague who dropped it, beside the spill
-      else if (hm) { PT.root.position.set(-0.15, 0.37, 0.25); PT.root.rotation.y = 0.6; }     // the colleague, at the end of the bench
+      else if (hm) { PT.root.position.set(-0.15, 0.37, 0.25); PT.root.rotation.y = 0.6; }
+      else if (bb) { PT.root.position.set(-1.2, 0.37, 0.6); PT.root.rotation.y = 0.8; }     // the porter, at the hatch     // the colleague, at the end of the bench
       else if (ch) { PT.root.position.set(-0.5, 0.37, 0.3); PT.root.rotation.y = 0.55; }     // the colleague, at the end of the bench
     }
     const f = v.flags, was = last?.flags || {};
     if (ph) syncPhlebotomy(v, f, was);
     if (rc) syncReception(v);
     if (hm) { spec = v.specimen; hm.drawScreen(spec, clock.elapsedTime); hm.show(spec); }
+    if (bb) bb.show(v.specimen);
     if (sp) sp.show(v);
     else if (ch) { spec = v.specimen; ch.serumMat.color.set(spec?.serum || "#e3b94f"); ch.drawScreen(spec, clock.elapsedTime); ch.drawQc(spec); }
     if (f.gone) { if (!was.gone && last) { PT.leaveT = PT.standing ? 1 : 0; armOut(false); } else if (!last) PT.root.visible = false; }
@@ -914,7 +1015,7 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
       headPos.project(camera);
       // At the bench the colleague can stand just out of a narrow (phone) view;
       // his bubble then stays on screen at the edge instead of vanishing.
-      if (headPos.z > 1 || (!ch && !hm && (Math.abs(headPos.x) > 1.1 || headPos.y > 1.2 || headPos.y < -1))) showP = false;
+      if (headPos.z > 1 || (!ch && !hm && !bb && (Math.abs(headPos.x) > 1.1 || headPos.y > 1.2 || headPos.y < -1))) showP = false;
       else {
         const w = host.clientWidth, h = host.clientHeight;
         const half = Math.min(w / 2, (P.el.offsetWidth || 180) / 2 + 8);      // keep the whole bubble inside the view
