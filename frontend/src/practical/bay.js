@@ -553,6 +553,12 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
     function drawScreen(sp, t = 0) {
       const c = scr.getContext("2d"), w = scr.width, h = scr.height, blink = Math.floor(t * 2) % 2 === 0;
       c.fillStyle = "#101a1c"; c.fillRect(0, 0, w, h);
+      if (sp && sp.plt == null) {       // nothing flagged in this practical: the analyser is just running
+        c.fillStyle = "#b99be0"; c.font = "700 16px monospace"; c.fillText("FBC · RUNNING", 12, 26);
+        c.fillStyle = "#e5f1ef"; c.font = "800 40px monospace"; c.fillText("READY", 12, 90);
+        c.font = "600 17px monospace"; c.fillText("Queue: 18 samples", 12, 130);
+        scrTex.needsUpdate = true; return;
+      }
       c.fillStyle = "#b99be0"; c.font = "700 16px monospace"; c.fillText("FBC · CBC+DIFF", 12, 26);
       c.fillStyle = "#e5f1ef"; c.font = "800 52px monospace"; c.fillText(`PLT ${sp?.plt ?? "--"}`, 12, 96);
       c.font = "600 15px monospace"; c.fillText("x10^9/L", 232, 96);

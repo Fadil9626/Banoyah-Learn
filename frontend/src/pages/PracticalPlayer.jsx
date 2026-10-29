@@ -403,14 +403,50 @@ function FilmField({ f }) {
     const feather = /Feather/.test(f.title);
     c.clearRect(0, 0, W, W); c.save();
     c.beginPath(); c.arc(R, R, R - 2, 0, 7); c.clip();
-    c.fillStyle = "#f4eeea"; c.fillRect(0, 0, W, W);
+    c.fillStyle = f.kind === "thick" ? "#ece4ef" : "#f4eeea"; c.fillRect(0, 0, W, W);
     const dot = (x, y, r, col) => { c.fillStyle = col; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); };
+    // Malaria: a ring form is a thin blue ring of cytoplasm with a red chromatin
+    // dot; a P. falciparum gametocyte is a banana-shaped crescent.
+    const ring = (x, y, r = 4.2) => {
+      c.strokeStyle = "#3b5bb5"; c.lineWidth = 1.6; c.beginPath(); c.arc(x, y, r, 0.4, 6.0); c.stroke();
+      dot(x + r * Math.cos(0.2), y + r * Math.sin(0.2), 1.9, "#b3123c");
+    };
+    const banana = (x, y, a) => {
+      c.save(); c.translate(x, y); c.rotate(a);
+      c.fillStyle = "#6f4ba8"; c.beginPath(); c.ellipse(0, 0, 13, 4.6, 0, 0, 7); c.fill();
+      dot(0, 0, 2.6, "#b3123c"); c.restore();
+    };
+    if (f.kind === "thick") {
+      // A thick film: the red cells are lysed, leaving a pale ground, white-cell
+      // nuclei, a few platelets, and any parasites.
+      for (let i = 0; i < 40; i++) dot(rnd() * W, rnd() * W, 6 + rnd() * 10, "rgba(214,190,214,.35)");
+      for (let i = 0; i < (f.wbc || 0); i++) {
+        const x = 50 + rnd() * 220, y = 50 + rnd() * 220;
+        for (let k = 0; k < 3; k++) dot(x - 7 + k * 7, y + (k % 2 ? 4 : -4), 6, "#5b2a86");
+      }
+      for (let i = 0; i < 14; i++) dot(20 + rnd() * 280, 20 + rnd() * 280, 1.8, "#8d5aa8");
+      for (let i = 0; i < (f.rings || 0); i++) ring(16 + rnd() * 288, 16 + rnd() * 288, 3.2 + rnd() * 1.2);
+      for (let i = 0; i < (f.gams || 0); i++) banana(60 + rnd() * 200, 60 + rnd() * 200, rnd() * 3);
+      c.restore();
+      c.strokeStyle = "#1a1d1f"; c.lineWidth = 4; c.beginPath(); c.arc(R, R, R - 2, 0, 7); c.stroke();
+      return;
+    }
     // red cells: touching in the body, sparse and without pallor at the feathered edge
+    const cells = [];
     for (let i = 0; i < (feather ? 34 : 95); i++) {
       const x = rnd() * W, y = rnd() * W, r = 12 + rnd() * 3;
       dot(x, y, r, feather ? "#e49aa2" : "#e8a6ac");
       if (!feather) dot(x, y, r * 0.42, "#f6d9dc");
+      cells.push([x, y, r]);
     }
+    // Parasites inside red cells (thin film): rings, two or more to a cell when
+    // the density is high, and the odd gametocyte stretched across a cell.
+    for (let i = 0; i < (f.rings || 0); i++) {
+      const [x, y, r] = cells[Math.floor(rnd() * cells.length)];
+      ring(x - r * 0.35, y - r * 0.2);
+      if (f.multi && rnd() < 0.6) ring(x + r * 0.35, y + r * 0.3, 3.6);
+    }
+    for (let i = 0; i < (f.gams || 0); i++) { const [x, y] = cells[Math.floor(rnd() * cells.length)]; banana(x, y, rnd() * 3); }
     for (let i = 0; i < (f.fibrin || 0); i++) {      // fibrin strands
       c.strokeStyle = "rgba(140,80,165,.9)"; c.lineWidth = 2.2; c.beginPath();
       let x = rnd() * W, y = rnd() * W; c.moveTo(x, y);
@@ -423,9 +459,9 @@ function FilmField({ f }) {
       for (let k = 0; k < 3; k++) dot(x - 8 + k * 8, y + (k % 2 ? 4 : -4), 6.5, "#5b2a86");
     }
     const plt = (x, y, r = 2.6) => { dot(x, y, r, "#7d3c98"); dot(x + r * 0.3, y - r * 0.2, r * 0.45, "#a46cbf"); };
-    for (let i = 0; i < f.singles; i++) plt(30 + rnd() * 260, 30 + rnd() * 260, 2.2 + rnd() * 1.2);
+    for (let i = 0; i < (f.singles || 0); i++) plt(30 + rnd() * 260, 30 + rnd() * 260, 2.2 + rnd() * 1.2);
     for (let i = 0; i < (f.giant || 0); i++) plt(60 + rnd() * 200, 60 + rnd() * 200, 6.5);
-    for (let i = 0; i < f.clumps; i++) {             // clumps: a dozen or more platelets heaped together
+    for (let i = 0; i < (f.clumps || 0); i++) {             // clumps: a dozen or more platelets heaped together
       const cx = 40 + rnd() * 240, cy = 40 + rnd() * 240, n = 10 + Math.floor(rnd() * 16);
       dot(cx, cy, 11 + n * 0.5, "rgba(186,140,200,.35)");
       for (let k = 0; k < n; k++) { const ang = rnd() * 7, d = rnd() * (6 + n * 0.45); plt(cx + Math.cos(ang) * d, cy + Math.sin(ang) * d, 2.2 + rnd()); }
