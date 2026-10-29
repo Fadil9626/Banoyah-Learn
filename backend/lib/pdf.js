@@ -168,4 +168,119 @@ async function certificatePDF(cert, out) {
   doc.end();
 }
 
-module.exports = { certificatePDF };
+// The built-in PDF fonts cover Western European text only: superscripts and a
+// few symbols the practicals use are spelled out so nothing prints as a box.
+const SUP = { "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9" };
+const plain = (s) => String(s ?? "")
+  .replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹]+/g, (m) => `^${[...m].map((c) => SUP[c]).join("")}`)
+  .replace(/⁺/g, "+").replace(/⁻/g, "-").replace(/≈/g, "~").replace(/≥/g, ">=").replace(/≤/g, "<=").replace(/→/g, "->").replace(/›/g, ">");
+
+/**
+ * A practical run as evidence of competence (portrait A4): who, what, when, the
+ * verdict and marks, the lab's figures in force, critical errors, points lost,
+ * the full timeline, the supervisor's note, and signature lines.
+ * `r` carries: org_name, brand_accent, learner, job_title, team, course,
+ * scenario, subject, mode, started_at, finished_at, passed, abandoned, score,
+ * theory_score, final_score, grading, crits, deds, log, figures [[label, value]],
+ * review_note, reviewer, reviewed_at, id, generated_by.
+ */
+function practicalRecordPDF(r, out) {
+  const accent = /^#[0-9a-fA-F]{6}$/.test(r.brand_accent || "") ? r.brand_accent : BRAND;
+  const M = 48;
+  const doc = new PDFDocument({ size: "A4", margins: { top: M, bottom: M + 10, left: M, right: M }, bufferPages: true, info: {
+    Title: plain(`Practical record #${r.id}: ${r.learner}`), Author: plain(r.org_name || "Banoyah Learn"), Subject: plain(r.course),
+  }});
+  doc.pipe(out);
+  const W = doc.page.width, CW = W - M * 2, bottom = () => doc.page.height - M - 10;
+  const room = (h) => { if (doc.y + h > bottom()) doc.addPage(); };
+  const when = (d) => (d ? new Date(d).toLocaleString("en-GB", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
+  const heading = (t) => {
+    room(40); doc.moveDown(0.8);
+    doc.fillColor(accent).font("Helvetica-Bold").fontSize(9.5).text(plain(t).toUpperCase(), M, doc.y, { characterSpacing: 1.2 });
+    doc.lineWidth(0.6).strokeColor(LINE).moveTo(M, doc.y + 3).lineTo(W - M, doc.y + 3).stroke(); doc.moveDown(0.6);
+  };
+  const pairs = (rows) => {
+    for (const [k, v] of rows) {
+      room(18); const y = doc.y;
+      doc.fillColor(MUTED).font("Helvetica").fontSize(9).text(plain(k), M, y, { width: 150 });
+      doc.fillColor(INK).font("Helvetica").fontSize(10).text(plain(v ?? "—"), M + 160, y, { width: CW - 160 });
+      doc.y = Math.max(doc.y, y + 14) + 2;
+    }
+  };
+
+  // Header
+  doc.rect(0, 0, W, 8).fill(accent);
+  doc.fillColor(MUTED).font("Helvetica-Bold").fontSize(9).text(plain(r.org_name || "").toUpperCase(), M, M - 8, { characterSpacing: 1.5 });
+  doc.fillColor(INK).font("Helvetica-Bold").fontSize(20).text("Practical competency record", M, doc.y + 4);
+  doc.fillColor(MUTED).font("Helvetica").fontSize(10).text(plain(r.course), M, doc.y + 2);
+
+  // Verdict
+  const verdict = r.mode !== "exam" ? "Practice run (not assessed)" : r.abandoned ? "Not passed (abandoned)" : r.passed ? "Passed" : "Not passed";
+  const vcol = r.mode !== "exam" ? MUTED : r.passed ? "#15803D" : "#B91C1C";
+  doc.moveDown(0.8);
+  const vy = doc.y;
+  doc.save().roundedRect(M, vy, CW, 46, 6).fillColor(vcol).fillOpacity(0.08).fill().restore();
+  doc.fillColor(vcol).font("Helvetica-Bold").fontSize(16).text(verdict, M + 14, vy + 9);
+  const g = r.grading || {};
+  const marks = [`Practical ${r.score ?? "—"}/100`, r.theory_score != null ? `Quiz ${r.theory_score}%` : null, r.final_score != null ? `Final ${r.final_score}/100 (pass ${g.finalPass ?? "—"})` : null].filter(Boolean).join("   ·   ");
+  doc.fillColor(INK).font("Helvetica").fontSize(9.5).text(marks, M + 14, vy + 29);
+  doc.y = vy + 56;
+
+  heading("Who, what and when");
+  pairs([
+    ["Staff member", [r.learner, r.job_title].filter(Boolean).join(", ")], ["Team", r.team || "—"],
+    ["Course", r.course], ["Practical", r.scenario], ["Case", r.subject],
+    ["Started", when(r.started_at)], ["Finished", when(r.finished_at)],
+    ["Marking", g.weight != null ? `Practical ${g.weight}% of the final mark${g.practicalMin ? `, practical minimum ${g.practicalMin}` : ""}. Any critical error fails.` : "—"],
+  ]);
+
+  if (r.figures?.length) { heading("The lab's figures in force for this run"); pairs(r.figures); }
+
+  heading(`Critical errors (${r.crits?.length || 0})`);
+  if (!r.crits?.length) { doc.fillColor(MUTED).font("Helvetica").fontSize(10).text("None."); }
+  for (const c of r.crits || []) { room(30); doc.fillColor("#B91C1C").font("Helvetica-Bold").fontSize(9.5).text(plain(c.step), { continued: true }).fillColor(INK).font("Helvetica").text(plain(`  ${c.reason}`)); doc.moveDown(0.3); }
+
+  heading(`Points lost (${r.deds?.length || 0})`);
+  if (!r.deds?.length) { doc.fillColor(MUTED).font("Helvetica").fontSize(10).text("None."); }
+  for (const d of r.deds || []) { room(30); doc.fillColor("#B45309").font("Helvetica-Bold").fontSize(9.5).text(`${d.delta}  ${plain(d.step)}`, { continued: true }).fillColor(INK).font("Helvetica").text(plain(`  ${d.note}`)); doc.moveDown(0.3); }
+
+  heading("What they did, second by second");
+  for (const l of r.log || []) {
+    room(16); const y = doc.y;
+    doc.fillColor(MUTED).font("Helvetica").fontSize(8.5).text(`${Math.floor(l.t / 60)}:${String(Math.floor(l.t % 60)).padStart(2, "0")}`, M, y, { width: 34 });
+    doc.fillColor(MUTED).text(plain(l.step), M + 38, y, { width: 96 });
+    const col = l.critical ? "#B91C1C" : l.delta ? "#B45309" : INK;
+    doc.fillColor(col).fontSize(9).text(plain(`${l.what}${l.delta ? `  (${l.delta})` : ""}${l.critical ? "  CRITICAL" : ""}`), M + 138, y, { width: CW - 138 });
+    doc.y = Math.max(doc.y, y + 11) + 2;
+  }
+
+  heading("Supervisor's review");
+  if (r.review_note) {
+    doc.fillColor(INK).font("Helvetica").fontSize(10).text(plain(r.review_note));
+    doc.fillColor(MUTED).fontSize(8.5).text(plain(`${r.reviewer || ""}, ${when(r.reviewed_at)}`), { align: "right" });
+  } else doc.fillColor(MUTED).font("Helvetica").fontSize(10).text("No note recorded.");
+
+  // Signatures
+  room(80); doc.moveDown(2.2);
+  const sy = doc.y + 24, half = (CW - 40) / 2;
+  for (const [i, label] of ["Assessor: name, signature, date", "Staff member: signature, date"].entries()) {
+    const x = M + i * (half + 40);
+    doc.lineWidth(0.8).strokeColor(INK).moveTo(x, sy).lineTo(x + half, sy).stroke();
+    doc.fillColor(MUTED).font("Helvetica").fontSize(8.5).text(label, x, sy + 5, { width: half });
+  }
+
+  // Footer on every page
+  const range = doc.bufferedPageRange();
+  for (let i = range.start; i < range.start + range.count; i++) {
+    doc.switchToPage(i);
+    const keep = doc.page.margins.bottom; doc.page.margins.bottom = 0;     // the footer sits in the margin: no new page for it
+    doc.fillColor(MUTED).font("Helvetica").fontSize(7.5).text(
+      plain(`Practical record #${r.id} · ${r.learner} · generated ${when(new Date())}${r.generated_by ? ` by ${r.generated_by}` : ""} · page ${i - range.start + 1} of ${range.count}`),
+      M, doc.page.height - M + 4, { width: CW, align: "center", lineBreak: false }
+    );
+    doc.page.margins.bottom = keep;
+  }
+  doc.end();
+}
+
+module.exports = { certificatePDF, practicalRecordPDF };

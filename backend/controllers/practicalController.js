@@ -3,6 +3,7 @@ const engine = require("../lib/practical/engine");
 const certificates = require("../lib/certificates");
 const audit = require("../lib/audit");
 const practicalSettings = require("../lib/practical/orgSettings");
+const { practicalRecordPDF } = require("../lib/pdf");
 const { publishedCourse, prerequisiteBlock, ensureEnrollment, quizPassed } = require("./learnController");
 
 // An exam nobody has touched for this long is treated as walked away from: it is
@@ -217,6 +218,7 @@ const resultDetail = async (req, res) => {
       subject: engine.subject(row.state),
       started_at: row.started_at, finished_at: row.finished_at, last_action_at: row.last_action_at,
       review_note: row.review_note, reviewer: row.reviewer, reviewed_at: row.reviewed_at,
+      figures: figuresOf(row),
       ...resultOf(row),
     });
   } catch (e) { return res.status(500).json({ message: e.message }); }
@@ -235,4 +237,42 @@ const review = async (req, res) => {
   } catch (e) { return res.status(500).json({ message: e.message }); }
 };
 
-module.exports = { start, get, act, scenarios, results, resultDetail, review };
+// The lab's figures a run used, as label/value pairs for people to read.
+function figuresOf(row) {
+  const cfg = row.state?.cfg || {};
+  return engine.settings(row.scenario_key).filter((f) => f.key in cfg).map((f) => {
+    const v = cfg[f.key];
+    const shown = f.type === "bool" ? (v ? "Yes" : "No") : f.type === "choice" ? (f.options.find(([o]) => o === v)?.[1] || v) : `${v}${f.unit ? ` ${f.unit}` : ""}`;
+    return [f.label, shown];
+  });
+}
+
+// GET /api/practicals/results/:id/pdf: the run as evidence of competence.
+const resultPdf = async (req, res) => {
+  try {
+    const ids = await teamIds(req);
+    const row = (await pool.query(
+      `SELECT s.*, u.name AS learner, u.job_title, u.team, c.title AS course, o.name AS org_name, r.name AS reviewer
+         FROM practical_sessions s
+         JOIN users u ON u.id = s.user_id
+         JOIN courses c ON c.id = s.course_id
+         JOIN organizations o ON o.id = s.org_id
+         LEFT JOIN users r ON r.id = s.reviewed_by
+        WHERE s.id = $1 AND s.org_id = $2`, [req.params.id, req.user.org_id]
+    )).rows[0];
+    if (!row || (ids && !ids.includes(row.user_id))) return res.status(404).json({ message: "Result not found" });
+    const accent = (await pool.query("SELECT value FROM org_settings WHERE org_id=$1 AND key='brand_accent'", [req.user.org_id])).rows[0]?.value;
+    audit.record(req, "practical.record_pdf", { target: `practical #${row.id}` });
+    const safe = String(row.learner).replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="practical-record-${row.id}-${safe}.pdf"`);
+    practicalRecordPDF({
+      ...resultOf(row), id: row.id, org_name: row.org_name, brand_accent: accent, learner: row.learner, job_title: row.job_title, team: row.team,
+      course: row.course, scenario: engine.get(row.scenario_key)?.title || row.scenario_key, subject: engine.subject(row.state),
+      mode: row.mode, started_at: row.started_at, finished_at: row.finished_at, theory_score: row.theory_score, final_score: row.final_score,
+      review_note: row.review_note, reviewer: row.reviewer, reviewed_at: row.reviewed_at, figures: figuresOf(row), generated_by: req.user.name,
+    }, res);
+  } catch (e) { return res.status(500).json({ message: e.message }); }
+};
+
+module.exports = { start, get, act, scenarios, results, resultDetail, review, resultPdf };

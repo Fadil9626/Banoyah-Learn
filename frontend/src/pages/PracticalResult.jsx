@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-hot-toast";
-import { ArrowLeft, Loader2, ShieldAlert, Save } from "lucide-react";
-import api from "../lib/api";
+import { ArrowLeft, Loader2, ShieldAlert, Save, FileDown } from "lucide-react";
+import api, { getToken } from "../lib/api";
 import { Verdict } from "./PracticalResults";
 import Timeline from "../components/PracticalTimeline";
 import FinalMark from "../components/FinalMark";
@@ -15,6 +15,7 @@ export default function PracticalResult() {
   const [r, setR] = useState(null);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const [pdf, setPdf] = useState(false);
 
   useEffect(() => {
     api(`practicals/results/${id}`).then((d) => { setR(d); setNote(d.review_note || ""); })
@@ -29,6 +30,18 @@ export default function PracticalResult() {
       toast.success("Note saved");
     } catch (e) { toast.error(e.message); }
     finally { setSaving(false); }
+  };
+
+  // The run as evidence of competence: a PDF with the verdict, the figures in
+  // force, every mistake, the timeline, the note, and lines to sign.
+  const download = async () => {
+    setPdf(true);
+    try {
+      const res = await fetch(`/api/practicals/results/${id}/pdf`, { headers: { Authorization: `Bearer ${getToken()}` } });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Could not make the PDF");
+      const url = URL.createObjectURL(await res.blob()), a = document.createElement("a");
+      a.href = url; a.download = `practical-record-${id}.pdf`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) { toast.error(e.message); } finally { setPdf(false); }
   };
 
   if (!r) return <div className="py-20 grid place-items-center text-muted"><Loader2 className="animate-spin" /></div>;
@@ -47,6 +60,7 @@ export default function PracticalResult() {
           <Verdict r={r} />
           <p className="text-2xl font-black font-mono tabular-nums mt-1">{r.final_score ?? r.score ?? "—"}<span className="text-sm text-faint"> / 100</span></p>
           <p className="text-xs text-faint">{r.final_score != null ? "final mark" : "practical"} · pass at {r.pass_mark}</p>
+          <button onClick={download} disabled={pdf} className="btn-ghost mt-2 text-sm">{pdf ? <Loader2 size={15} className="animate-spin" /> : <FileDown size={15} />} Record (PDF)</button>
         </div>
       </div>
 
@@ -57,6 +71,15 @@ export default function PracticalResult() {
       </div>
 
       {r.grading && <div className="mb-5"><FinalMark g={r.grading} /></div>}
+
+      {r.figures?.length > 0 && (
+        <details className="card px-4 py-3 mb-5 text-sm">
+          <summary className="cursor-pointer font-semibold text-content">The lab's figures this run used</summary>
+          <dl className="grid sm:grid-cols-[1fr_auto] gap-x-6 gap-y-1 mt-2">
+            {r.figures.map(([k, v]) => <React.Fragment key={k}><dt className="text-muted">{k}</dt><dd className="m-0 font-mono text-content">{v}</dd></React.Fragment>)}
+          </dl>
+        </details>
+      )}
 
       {r.crits.length > 0 && (
         <div className="rounded-xl p-4 mb-4" style={{ background: "rgb(var(--danger) / 0.10)" }}>

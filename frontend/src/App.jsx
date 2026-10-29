@@ -29,6 +29,7 @@ const CourseHandout  = lazy(() => import("./pages/CourseHandout"));
 const PracticalPlayer = lazy(() => import("./pages/PracticalPlayer"));
 const PracticalResults = lazy(() => import("./pages/PracticalResults"));
 const PracticalResult  = lazy(() => import("./pages/PracticalResult"));
+const Competency       = lazy(() => import("./pages/Competency"));
 
 function PageLoader() {
   return (
@@ -117,6 +118,7 @@ export default function App() {
           <Route path="/reporting" element={<Reporting />} />
           <Route path="/practicals" element={<PracticalResults />} />
           <Route path="/practicals/:id" element={<PracticalResult />} />
+          <Route path="/competency" element={<Competency />} />
         </Route>
 
         {/* Authoring: admin + instructor */}
