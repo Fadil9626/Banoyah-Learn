@@ -15,6 +15,7 @@ const VIEW_NAMES = {
   phlebotomy: [["patient", "Patient"], ["wide", "Bay"], ["bench", "Bench"], ["rack", "Tubes"]],
   reception: [["nurse", "Nurse"], ["counter", "Counter"], ["close", "Close-up"], ["phone", "Phone"]],
   chemistry: [["bench", "Bench"], ["analyser", "Analyser"], ["qc", "QC chart"], ["phone", "Phone"]],
+  haematology: [["bench", "Bench"], ["analyser", "Analyser"], ["stain", "Stain"], ["scope", "Microscope"], ["phone", "Phone"]],
   spill: [["room", "Room"], ["work", "Work"], ["kit", "Trolley"], ["spill", "Spill"], ["phone", "Phone"]],
 };
 // What a clean run means, in each room's words.
@@ -22,11 +23,13 @@ const CLEAN = {
   phlebotomy: "A clean draw: right patient, right tubes in the right order, labelled at the chair.",
   reception: "A clean check: every sample matched to its form, every fault caught with the right reason.",
   chemistry: "A clean call: checked before it left the lab, the right action for what the checks showed, and every word of the call where it should be.",
+  haematology: "A clean call: checked and looked at under the microscope before it left the lab, the right action for what the film showed, and every word of the call where it should be.",
   spill: "A clean clear-up: people first, the area kept clear, protected before you touched it, the right disinfectant left to work, no glass in a hand, and reported.",
 };
 const STAGE_LABEL = {
   reception: "The specimen reception counter in 3D. Click a sample to pick it up.",
   chemistry: "The chemistry bench in 3D. Click things to check them.",
+  haematology: "The haematology bench in 3D. Click things to check or use them.",
   spill: "The chemistry lab in 3D, with a blood spill on the floor and the spill trolley. Click things to use them.",
 };
 const initialsOf = (name) => name.replace(/\(.*\)/, "").trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2);
@@ -275,9 +278,16 @@ export default function PracticalPlayer() {
                 {cur.type === "check" && (
                   <>
                     <p className="text-[15px]">{cur.task}</p>
-                    <p className="text-xs text-muted">Click things in the bay to check them; what each one shows appears here. On a phone, tap once to name it and again to check it.</p>
+                    {cur.clues ? (
+                      <div className="flex flex-wrap gap-2">
+                        {cur.clues.map((c) => (
+                          <button key={c.id} disabled={busy} aria-pressed={v.findings?.some((f) => f.id === c.id)} onClick={() => send({ type: "pick", id: c.id })}
+                            className="rounded-xl border border-line px-3 py-2 text-sm hover:border-brand aria-pressed:border-brand aria-pressed:bg-brand/10 disabled:opacity-60">{c.name}</button>
+                        ))}
+                      </div>
+                    ) : <p className="text-xs text-muted">Click things in the bay to check them; what each one shows appears here. On a phone, tap once to name it and again to check it.</p>}
                     <Findings items={v.findings} />
-                    <button disabled={busy} onClick={() => send({ type: "continue" })} className="btn-brand self-start">I've checked: decide</button>
+                    <button disabled={busy} onClick={() => send({ type: "continue" })} className="btn-brand self-start">{cur.doneText || "I've checked: decide"}</button>
                   </>
                 )}
                 {cur.type === "label" && (
@@ -368,6 +378,7 @@ function Findings({ items }) {
               </table>
             </div>
           )}
+          {f.type === "field" && <FilmField f={f} />}
           {f.type === "qc" && (
             <>
               {f.levels.map((L) => <QcChart key={L.name} level={L} />)}
@@ -378,6 +389,51 @@ function Findings({ items }) {
       ))}
     </div>
   );
+}
+
+// A field of a stained blood film under oil, drawn from the numbers the server
+// sends: red cells, the odd white cell, single platelets, clumps and fibrin.
+// The same seed draws the same field every time.
+function FilmField({ f }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const cv = ref.current, c = cv.getContext("2d"), W = 320, R = W / 2;
+    let a = f.seed * 2654435761 >>> 0;
+    const rnd = () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    const feather = /Feather/.test(f.title);
+    c.clearRect(0, 0, W, W); c.save();
+    c.beginPath(); c.arc(R, R, R - 2, 0, 7); c.clip();
+    c.fillStyle = "#f4eeea"; c.fillRect(0, 0, W, W);
+    const dot = (x, y, r, col) => { c.fillStyle = col; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); };
+    // red cells: touching in the body, sparse and without pallor at the feathered edge
+    for (let i = 0; i < (feather ? 34 : 95); i++) {
+      const x = rnd() * W, y = rnd() * W, r = 12 + rnd() * 3;
+      dot(x, y, r, feather ? "#e49aa2" : "#e8a6ac");
+      if (!feather) dot(x, y, r * 0.42, "#f6d9dc");
+    }
+    for (let i = 0; i < (f.fibrin || 0); i++) {      // fibrin strands
+      c.strokeStyle = "rgba(140,80,165,.9)"; c.lineWidth = 2.2; c.beginPath();
+      let x = rnd() * W, y = rnd() * W; c.moveTo(x, y);
+      for (let k = 0; k < 12; k++) { x += (rnd() - 0.3) * 34; y += (rnd() - 0.5) * 26; c.lineTo(x, y); }
+      c.stroke();
+    }
+    if (rnd() < 0.6) {                               // a neutrophil, now and then
+      const x = 60 + rnd() * 200, y = 60 + rnd() * 200;
+      dot(x, y, 21, "#dccbe6");
+      for (let k = 0; k < 3; k++) dot(x - 8 + k * 8, y + (k % 2 ? 4 : -4), 6.5, "#5b2a86");
+    }
+    const plt = (x, y, r = 2.6) => { dot(x, y, r, "#7d3c98"); dot(x + r * 0.3, y - r * 0.2, r * 0.45, "#a46cbf"); };
+    for (let i = 0; i < f.singles; i++) plt(30 + rnd() * 260, 30 + rnd() * 260, 2.2 + rnd() * 1.2);
+    for (let i = 0; i < (f.giant || 0); i++) plt(60 + rnd() * 200, 60 + rnd() * 200, 6.5);
+    for (let i = 0; i < f.clumps; i++) {             // clumps: a dozen or more platelets heaped together
+      const cx = 40 + rnd() * 240, cy = 40 + rnd() * 240, n = 10 + Math.floor(rnd() * 16);
+      dot(cx, cy, 11 + n * 0.5, "rgba(186,140,200,.35)");
+      for (let k = 0; k < n; k++) { const ang = rnd() * 7, d = rnd() * (6 + n * 0.45); plt(cx + Math.cos(ang) * d, cy + Math.sin(ang) * d, 2.2 + rnd()); }
+    }
+    c.restore();
+    c.strokeStyle = "#1a1d1f"; c.lineWidth = 4; c.beginPath(); c.arc(R, R, R - 2, 0, 7); c.stroke();
+  }, [f]);
+  return <canvas ref={ref} width="320" height="320" className="w-full max-w-[300px] aspect-square rounded-full bg-black" role="img" aria-label={`${f.title}: a stained blood film under the microscope`} />;
 }
 
 // A Levey-Jennings chart: the target, ±2 SD (warning) and ±3 SD (reject).

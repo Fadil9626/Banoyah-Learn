@@ -2,7 +2,8 @@
 // bench of equipment, a rack of tubes), the specimen reception counter (a ward
 // nurse across the counter, a rack of samples to inspect), the chemistry
 // bench (an analyser flagging a result, a colleague beside it), and the same lab
-// with a blood spill on its floor and the spill trolley. Each one draws what
+// with a blood spill on its floor and the spill trolley, and the haematology
+// bench (an analyser, a staining rack, a microscope). Each one draws what
 // the server says has happened (sync) and reports what the learner clicked
 // (onPick). It decides nothing — the grading lives on the server.
 import * as THREE from "three";
@@ -26,6 +27,14 @@ const VIEWS_BY_KIND = {
     qc:       { p: [1.18, 1.45, 0.55], l: [1.18, 1.4, -0.6] },
     phone:    { p: [1.55, 1.5, 0.95],  l: [1.75, 1.0, -0.12] },
   },
+  haematology: {
+    bench:    { p: [1.1, 1.75, 2.3],   l: [1.1, 0.95, -0.25] },
+    analyser: { p: [0.5, 1.45, 0.95],  l: [0.5, 1.0, -0.25] },
+    stain:    { p: [1.25, 1.5, 0.8],   l: [1.25, 0.95, -0.2] },
+    scope:    { p: [1.98, 1.42, 0.62], l: [1.98, 1.05, -0.25] },
+    qc:       { p: [1.0, 1.45, 0.55],  l: [1.0, 1.4, -0.6] },
+    phone:    { p: [2.45, 1.5, 0.95],  l: [2.6, 1.0, -0.12] },
+  },
   spill: {
     room:  { p: [0.0, 2.0, 3.2],   l: [0.0, 0.5, 0.3] },
     work:  { p: [-0.25, 1.6, 1.85], l: [-0.25, 0.45, 0.45] },
@@ -34,7 +43,7 @@ const VIEWS_BY_KIND = {
     phone: { p: [1.55, 1.5, 0.95],  l: [1.75, 1.0, -0.12] },
   },
 };
-export const FIRST_VIEW = { phlebotomy: "patient", reception: "nurse", chemistry: "bench", spill: "room" };
+export const FIRST_VIEW = { phlebotomy: "patient", reception: "nurse", chemistry: "bench", spill: "room", haematology: "bench" };
 const TOP = 0.9;      // bench height in the phlebotomy bay
 const DESK = 1.04;    // counter height at reception
 
@@ -511,11 +520,151 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
     return { show };
   }
 
+  // ── the haematology bench ──
+  // The analyser reporting the count, the EDTA sample in front of it, a slide box
+  // and spreader, the staining rack over its sink, the microscope, the QC chart,
+  // the ELIMS terminal and the phone. A colleague stands at the end of the bench.
+  function buildHaematology() {
+    mesh(B(9, 3, 0.05), mat("#eef2ef"), 0.8, 1.5, -0.62);
+    mesh(B(9, 1.1, 0.02), mat("#d3e2de", { roughness: 0.4 }), 0.8, 0.55, -0.59);
+    mesh(B(0.05, 3, 6), mat("#e8edea"), -1.6, 1.5, 2.3);
+    mesh(B(0.05, 3, 6), mat("#e8edea"), 3.2, 1.5, 2.3);
+    mesh(B(1.4, 0.26, 0.01), mat("#ffffff", { map: canvasTex(560, 104, (c, w, h) => {
+      c.fillStyle = "#6b3fa0"; c.fillRect(0, 0, w, h); c.fillStyle = "#fff";
+      c.font = "800 44px sans-serif"; c.fillText("HAEMATOLOGY", 22, 58);
+      c.font = "600 21px sans-serif"; c.fillText("When the count surprises you, look at a film", 24, 90);
+    }) }), 0.0, 2.2, -0.59).castShadow = false;
+
+    // the bench
+    mesh(B(2.9, 0.86, 0.62), mat("#c3ccd0"), 1.15, 0.43, -0.28);
+    mesh(B(2.94, 0.04, 0.66), mat("#f4f6f7", { roughness: 0.3 }), 1.15, 0.88, -0.28);
+    for (let x = -0.2; x < 2.6; x += 0.46) mesh(B(0.01, 0.7, 0.01), mat("#93a0a6"), x, 0.45, 0.035);
+
+    // the analyser, its screen redrawn from the run
+    const gAn = group(0.42, TOP, -0.33);
+    mesh(B(0.62, 0.52, 0.46), mat("#e9edef", { roughness: 0.4 }), 0, 0.26, 0, gAn);
+    mesh(B(0.62, 0.06, 0.48), mat("#6b3fa0"), 0, 0.55, 0, gAn);
+    mesh(B(0.12, 0.08, 0.06), mat("#cfd6da", { metalness: 0.4 }), -0.2, 0.18, 0.24, gAn);           // the sample probe
+    mesh(C(0.004, 0.004, 0.07, 6), mat("#d7dde0", { metalness: 0.9 }), -0.2, 0.11, 0.25, gAn);
+    const scr = document.createElement("canvas"); scr.width = 320; scr.height = 200;
+    const scrTex = new THREE.CanvasTexture(scr); disposables.push(scrTex);
+    mesh(B(0.3, 0.19, 0.004), mat("#ffffff", { map: scrTex, emissive: "#ffffff", emissiveIntensity: 0.3 }), 0.1, 0.36, 0.232, gAn).castShadow = false;
+    reg("analyser", gAn);
+    function drawScreen(sp, t = 0) {
+      const c = scr.getContext("2d"), w = scr.width, h = scr.height, blink = Math.floor(t * 2) % 2 === 0;
+      c.fillStyle = "#101a1c"; c.fillRect(0, 0, w, h);
+      c.fillStyle = "#b99be0"; c.font = "700 16px monospace"; c.fillText("FBC · CBC+DIFF", 12, 26);
+      c.fillStyle = "#e5f1ef"; c.font = "800 52px monospace"; c.fillText(`PLT ${sp?.plt ?? "--"}`, 12, 96);
+      c.font = "600 15px monospace"; c.fillText("x10^9/L", 232, 96);
+      if (blink || reduced) { c.fillStyle = "#ff6b5f"; c.fillRect(12, 116, 200, 34); c.fillStyle = "#fff"; c.font = "800 20px monospace"; c.fillText("CRITICAL LOW", 26, 140); }
+      c.fillStyle = "#f0a55c"; c.font = "700 15px monospace"; c.fillText("Flags: see results", 12, 182);
+      scrTex.needsUpdate = true;
+    }
+
+    // the sample: whole blood in a purple-top EDTA tube
+    const gTube = group(0.85, TOP, -0.02);
+    mesh(B(0.12, 0.012, 0.07), mat("#e8eef0"), 0, 0.006, 0, gTube); mesh(B(0.12, 0.012, 0.07), mat("#e8eef0"), 0, 0.07, 0, gTube);
+    const R = 0.013, H = 0.12;
+    mesh(C(R, R, H, 18), mat("#eef5f7", { roughness: 0.08, transparent: true, opacity: 0.4 }), 0, H / 2, 0, gTube);
+    mesh(C(R * 0.9, R * 0.9, H * 0.7, 18), mat("#6a0d13", { roughness: 0.3 }), 0, 0.003 + H * 0.35, 0, gTube);
+    mesh(C(R * 1.03, R * 1.03, H * 0.34, 18, true), mat("#ffffff", { side: THREE.DoubleSide }), 0, H * 0.45, R * 0.05, gTube);
+    mesh(C(R * 1.15, R * 1.15, 0.028, 18), mat("#7b2fa1", { roughness: 0.4 }), 0, H + 0.013, 0, gTube);
+    reg("tube", gTube, C(0.04, 0.04, 0.18), [0, 0.07, 0]);
+
+    // QC material, beside the analyser
+    const gVials = group(-0.08, TOP, -0.12);
+    mesh(B(0.14, 0.05, 0.1), mat("#2f5d62"), 0, 0.025, 0, gVials);
+    for (let i = 0; i < 3; i++) mesh(C(0.011, 0.011, 0.06, 10), mat("#7b2fa1"), -0.035 + i * 0.035, 0.08, 0, gVials);
+    reg("qcvials", gVials, B(0.16, 0.13, 0.12), [0, 0.06, 0]);
+
+    // slides and the spreader; the film appears on them once made
+    const gSl = group(1.08, TOP, -0.02);
+    mesh(B(0.14, 0.03, 0.09), mat("#dfe6e8"), 0, 0.015, 0, gSl);
+    for (let i = 0; i < 4; i++) mesh(B(0.075, 0.002, 0.026), mat("#eef7fa", { transparent: true, opacity: 0.8 }), 0, 0.032 + i * 0.002, -0.02 + i * 0.002, gSl);
+    const film = mesh(B(0.075, 0.003, 0.026), mat("#eef7fa", { transparent: true, opacity: 0.85 }), 0.0, 0.004, 0.08, gSl);
+    const smear = mesh(B(0.045, 0.001, 0.02), mat("#c46a73"), -0.008, 0.006, 0.08, gSl);
+    mesh(B(0.075, 0.003, 0.026), mat("#eef7fa", { transparent: true, opacity: 0.85 }), 0.1, 0.004, 0.06, gSl).rotation.y = 0.5;   // the spreader
+    reg("slides", gSl, B(0.24, 0.06, 0.18), [0.03, 0.02, 0.04]);
+
+    // the staining rack over its sink, with the stain and the buffer
+    const gSt = group(1.45, TOP, -0.25);
+    mesh(B(0.42, 0.04, 0.3), mat("#59656b", { roughness: 0.3 }), 0, 0.02, 0, gSt);
+    for (const z of [-0.05, 0.05]) mesh(B(0.38, 0.012, 0.012), mat("#cfd6da", { metalness: 0.6 }), 0, 0.07, z, gSt);
+    const stained = mesh(B(0.075, 0.003, 0.026), mat("#8e4a9c"), 0.05, 0.08, 0, gSt);
+    for (const [x, col, cap] of [[-0.25, "#4b2a7a", "#2b1640"], [-0.32, "#e9f3f7", "#2f86d6"]]) {
+      mesh(C(0.028, 0.03, 0.15, 14), mat(col, { roughness: 0.25 }), x, 0.075, 0.1, gSt); mesh(C(0.012, 0.014, 0.03, 10), mat(cap), x, 0.165, 0.1, gSt);
+    }
+    mesh(C(0.01, 0.01, 0.2, 8), mat("#aab4b8", { metalness: 0.6 }), 0.17, 0.12, -0.12, gSt);
+    reg("stain", gSt, B(0.5, 0.2, 0.34), [-0.05, 0.08, 0]);
+
+    // the microscope
+    const gMic = group(1.98, TOP, -0.25);
+    const black = mat("#2a3034", { roughness: 0.5 }), ivory = mat("#eceae4", { roughness: 0.4 });
+    mesh(B(0.2, 0.04, 0.26), ivory, 0, 0.02, 0, gMic);
+    mesh(B(0.06, 0.34, 0.08), ivory, 0, 0.19, -0.09, gMic);
+    mesh(B(0.17, 0.014, 0.15), black, 0, 0.15, 0.02, gMic);
+    const onStage = mesh(B(0.075, 0.003, 0.026), mat("#8e4a9c"), 0, 0.159, 0.03, gMic);
+    mesh(C(0.035, 0.035, 0.03, 16), black, 0, 0.27, 0.02, gMic);
+    for (const [x, z] of [[-0.02, 0.0], [0.02, 0.01], [0, 0.04]]) mesh(C(0.009, 0.007, 0.06, 10), mat("#cfd6da", { metalness: 0.7 }), x, 0.22, z + 0.01, gMic);
+    const head = group(0, 0.36, -0.03, gMic); head.rotation.x = 0.5;
+    mesh(B(0.1, 0.05, 0.1), ivory, 0, 0, 0, head);
+    for (const s of [-1, 1]) mesh(C(0.012, 0.012, 0.08, 12), black, s * 0.025, 0.05, 0.03, head);
+    for (const s of [-1, 1]) mesh(C(0.03, 0.03, 0.02, 14), black, s * 0.04, 0.15, -0.09, gMic).rotation.z = Math.PI / 2;
+    mesh(C(0.02, 0.02, 0.01, 12), mat("#fff7d6", { emissive: "#fff2b0", emissiveIntensity: 0.6 }), 0, 0.045, 0.02, gMic);
+    reg("microscope", gMic, B(0.24, 0.5, 0.3), [0, 0.22, 0]);
+
+    // today's QC chart on the wall, ELIMS, the phone, the fridge
+    const gQc = group(1.0, 1.4, -0.585);
+    mesh(B(0.5, 0.36, 0.012), mat("#ffffff", { map: canvasTex(360, 260, (c, w, h) => {
+      c.fillStyle = "#fffdf5"; c.fillRect(0, 0, w, h);
+      c.fillStyle = "#1f2522"; c.font = "800 18px sans-serif"; c.fillText("QC · Platelets", 12, 24);
+      [[0.4, -0.6, 0.9, -0.2, 1.1, -0.8, 0.3, 0.6, -0.4, 0.2], [-0.3, 0.5, -1, 0.7, 0.1, -0.5, 1.2, -0.2, 0.4, -0.6], [0.6, -0.2, 0.3, -1.1, 0.8, 0.2, -0.4, 0.9, -0.7, 0.5]].forEach((pts, k) => {
+        const mid = 62 + k * 72, sd = 9;
+        c.fillStyle = "#4f5a57"; c.font = "600 12px sans-serif"; c.fillText(`Level ${k + 1}`, 12, mid + 4);
+        for (const [s, col] of [[0, "#1f2522"], [2, "#d68a2a"], [-2, "#d68a2a"], [3, "#c0392b"], [-3, "#c0392b"]]) { c.strokeStyle = col; c.lineWidth = 1; c.beginPath(); c.moveTo(70, mid - s * sd); c.lineTo(w - 12, mid - s * sd); c.stroke(); }
+        c.strokeStyle = "#6b3fa0"; c.lineWidth = 1.5; c.beginPath();
+        pts.forEach((p, i) => { const x = 80 + i * 27, y = mid - p * sd; i ? c.lineTo(x, y) : c.moveTo(x, y); }); c.stroke();
+        pts.forEach((p, i) => { c.fillStyle = "#6b3fa0"; c.beginPath(); c.arc(80 + i * 27, mid - p * sd, 3.5, 0, 7); c.fill(); });
+      });
+    }) }), 0, 0, 0, gQc).castShadow = false;
+    reg("qc", gQc, B(0.52, 0.38, 0.05));
+    const gMon = group(2.42, TOP, -0.38);
+    mesh(B(0.1, 0.02, 0.1), mat("#3d4448"), 0, 0.01, 0, gMon); mesh(C(0.015, 0.015, 0.2, 8), mat("#3d4448"), 0, 0.11, 0, gMon);
+    mesh(B(0.46, 0.29, 0.03), mat("#1e2327"), 0, 0.34, 0, gMon);
+    mesh(B(0.42, 0.25, 0.004), mat("#ffffff", { emissive: "#ffffff", emissiveIntensity: 0.25, map: canvasTex(300, 180, (c, w) => {
+      c.fillStyle = "#f4f7f8"; c.fillRect(0, 0, w, 180); c.fillStyle = "#0c7a69"; c.fillRect(0, 0, w, 30);
+      c.fillStyle = "#fff"; c.font = "800 16px sans-serif"; c.fillText("ELIMS · Haematology", 10, 21);
+      c.font = "600 12px monospace";
+      ["Validation queue: 9", "Critical results: 1 to call", "Patient history  ·  Delta check"].forEach((t, i) => {
+        c.fillStyle = i % 2 ? "#ffffff" : "#e8eef0"; c.fillRect(0, 36 + i * 30, w, 30); c.fillStyle = i === 1 ? "#b3261e" : "#2d3436"; c.fillText(t, 10, 56 + i * 30);
+      });
+    }) }), 0, 0.34, 0.017, gMon);
+    reg("terminal", gMon);
+    const gPhone = group(2.62, TOP, -0.08);
+    mesh(B(0.17, 0.05, 0.2), mat("#2b3034"), 0, 0.025, 0, gPhone); mesh(B(0.05, 0.035, 0.21), mat("#1b1f22"), -0.05, 0.065, 0, gPhone);
+    for (let r = 0; r < 3; r++) for (let k = 0; k < 3; k++) mesh(B(0.022, 0.006, 0.022), mat("#cfd6da"), 0.03 + k * 0.028, 0.053, -0.05 + r * 0.035, gPhone);
+    reg("phone", gPhone, B(0.22, 0.12, 0.24), [0, 0.05, 0]);
+    const gFr = group(2.95, 0, 0.2);
+    mesh(B(0.45, 1.7, 0.55), mat("#f1f4f5", { roughness: 0.35 }), 0, 0.85, 0, gFr); mesh(B(0.03, 0.4, 0.03), mat("#9aa6ab", { metalness: 0.5 }), -0.24, 1.15, 0.29, gFr);
+    reg("fridge", gFr);
+
+    // The film appears as it is made: spread on a slide, then on the staining
+    // rack, then on the microscope stage.
+    function show(sp) {
+      const used = sp?.used || [], spread = used.includes("slides"), dyed = used.includes("stain"), onScope = used.includes("microscope");
+      film.visible = smear.visible = spread && !dyed;
+      stained.visible = dyed && !onScope;
+      onStage.visible = onScope;
+    }
+    return { drawScreen, show, phonePos: new THREE.Vector3(2.62, TOP + 0.3, -0.08) };
+  }
+
   const ph = kind === "phlebotomy" ? buildPhlebotomy() : null;
   const rc = kind === "reception" ? buildReception() : null;
   const ch = kind === "chemistry" || kind === "spill" ? buildChemistry(kind === "spill") : null;
   const sp = kind === "spill" ? buildSpill() : null;
-  const phonePos = rc?.phonePos || ch?.phonePos || null;
+  const hm = kind === "haematology" ? buildHaematology() : null;
+  const phonePos = rc?.phonePos || ch?.phonePos || hm?.phonePos || null;
 
   // ── the patient ──
   let PT = null;
@@ -595,7 +744,7 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
   }
   // The spill is spread across the room: on a narrow (phone) screen the camera
   // keeps the width it has on a desktop and shows more height instead.
-  const WIDE = kind === "spill" ? Math.tan((25 * Math.PI) / 180) * 1.3 : 0;
+  const WIDE = kind === "spill" || kind === "haematology" ? Math.tan((25 * Math.PI) / 180) * 1.3 : 0;
   function resize() {
     const w = host.clientWidth, h = host.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / Math.max(1, h);
     camera.fov = WIDE && camera.aspect < 1.3 ? (2 * Math.atan(WIDE / camera.aspect) * 180) / Math.PI : 50;
@@ -671,11 +820,13 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
     if (v.patient.name !== patientName) {
       patientName = v.patient.name; buildPatient(v.patient.look, kind !== "phlebotomy"); last = null;
       if (sp) { PT.root.position.set(1.2, 0.37, 0.95); PT.root.rotation.y = -0.45; }     // the colleague who dropped it, beside the spill
+      else if (hm) { PT.root.position.set(-0.15, 0.37, 0.25); PT.root.rotation.y = 0.6; }     // the colleague, at the end of the bench
       else if (ch) { PT.root.position.set(-0.5, 0.37, 0.3); PT.root.rotation.y = 0.55; }     // the colleague, at the end of the bench
     }
     const f = v.flags, was = last?.flags || {};
     if (ph) syncPhlebotomy(v, f, was);
     if (rc) syncReception(v);
+    if (hm) { spec = v.specimen; hm.drawScreen(spec, clock.elapsedTime); hm.show(spec); }
     if (sp) sp.show(v);
     else if (ch) { spec = v.specimen; ch.serumMat.color.set(spec?.serum || "#e3b94f"); ch.drawScreen(spec, clock.elapsedTime); ch.drawQc(spec); }
     if (f.gone) { if (!was.gone && last) { PT.leaveT = PT.standing ? 1 : 0; armOut(false); } else if (!last) PT.root.visible = false; }
@@ -757,10 +908,11 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
       headPos.project(camera);
       // At the bench the colleague can stand just out of a narrow (phone) view;
       // his bubble then stays on screen at the edge instead of vanishing.
-      if (headPos.z > 1 || (!ch && (Math.abs(headPos.x) > 1.1 || headPos.y > 1.2 || headPos.y < -1))) showP = false;
+      if (headPos.z > 1 || (!ch && !hm && (Math.abs(headPos.x) > 1.1 || headPos.y > 1.2 || headPos.y < -1))) showP = false;
       else {
         const w = host.clientWidth, h = host.clientHeight;
-        const x = Math.min(w - 90, Math.max(90, (headPos.x + 1) / 2 * w)), y = Math.max(70, (1 - headPos.y) / 2 * h);
+        const half = Math.min(w / 2, (P.el.offsetWidth || 180) / 2 + 8);      // keep the whole bubble inside the view
+        const x = Math.min(w - half, Math.max(half, (headPos.x + 1) / 2 * w)), y = Math.max((P.el.offsetHeight || 60) + 56, (1 - headPos.y) / 2 * h);     // clear of the camera buttons
         P.el.style.left = `${x}px`; P.el.style.top = `${y}px`;
       }
     }
@@ -785,7 +937,7 @@ export function createBay(host, { onPick, onView, kind = "phlebotomy" } = {}) {
     cam.p.lerp(cam.tp, kc); cam.l.lerp(cam.tl, kc); camera.position.copy(cam.p); camera.lookAt(cam.l);
     placeBubbles(t);
     if (ph) for (const k in ph.TUBE3D) { const T = ph.TUBE3D[k]; if (T.level < T.want) { T.level = Math.min(T.want, T.level + dt * 1.2); T.fill.scale.y = Math.max(0.001, T.level); T.fill.position.y = 0.01 + 0.035 * T.level; } }
-    if (ch && !sp && !reduced && Math.floor(t * 2) !== blinkT) { blinkT = Math.floor(t * 2); ch.drawScreen(spec, t); }    // the critical flag blinks
+    if ((hm || (ch && !sp)) && !reduced && Math.floor(t * 2) !== blinkT) { blinkT = Math.floor(t * 2); (hm || ch).drawScreen(spec, t); }    // the critical flag blinks
     if (rc) for (const k in rc.SAMPLE3D) {
       const T = rc.SAMPLE3D[k], km = reduced ? 1 : 1 - Math.exp(-dt * 6);
       T.g.position.lerp(T.target, km);

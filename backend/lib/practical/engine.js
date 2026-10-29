@@ -17,6 +17,7 @@ const SCENARIOS = {
   "recep-102": require("./scenarios/recep102"),
   "chem-202": require("./scenarios/chem202"),
   "safe-301": require("./scenarios/safe301"),
+  "hema-201": require("./scenarios/hema201"),
 };
 
 const list = () => Object.values(SCENARIOS).map((s) => ({ key: s.key, title: s.title, description: s.description }));
@@ -144,6 +145,7 @@ function use(c, id) {
 // with an essential check not made costs what the scenario says it costs.
 function check(c, id) {
   const { st, sc, steps } = c, s = steps[st.step], name = sc.OBJECTS[id][0];
+  if (s.info?.[id]) return say(c, "info", s.info[id]);
   if (!s.clues.includes(id)) return say(c, "info", sc.NEUTRAL.includes(id) ? `${name}: not needed right now.` : `${name}: not needed to check this result.`);
   st.found ||= [];
   if (st.found.includes(id)) return say(c, "info", "Already checked. What it showed is below the bay.");
@@ -360,6 +362,10 @@ function view(st, now) {
     current: s && {
       id: s.id, name: s.name, type: s.type, view: s.view, task: s.task || null,
       speaker: s.speaker || null, anchor: s.anchor || null,
+      // Some checks are not things in the room (where to look on a slide): they
+      // are offered as buttons. Which of them matter is never said.
+      doneText: s.doneText || null,
+      clues: s.type === "check" && s.buttons ? s.clues.map((id) => ({ id, name: sc.OBJECTS[id][0] })) : null,
       // Once the patient has left, nobody is there to speak, unless the step is
       // with someone else, such as the ward on the phone.
       say: s.type === "talk" && !(f.gone && st.picked == null && !s.anchor) ? s.say : null,
